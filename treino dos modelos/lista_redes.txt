@@ -1,0 +1,4 @@
+2 redes tradicionais - VGG 19 e Resnet101
+2 redes leves - mobileNet e EfficientNet B0
+2 redes com transformer - Swin e Vit
+2 abordagens com foundation models - Aqui a gente precisa definir um pouco melhor.
