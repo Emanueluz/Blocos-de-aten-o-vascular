@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 
 # Carregar e redimensionar a imagem
 img = cv2.imread("/home/lesc/Documentos/Bancos de dados/FIVE/train/Original/65_A.png")
-img = cv2.resize(img, (512, 521))
 
 # Converter para escala de cinza para processamento
 img_cinza = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -60,10 +59,7 @@ sobel_x_bgr = cv2.cvtColor(sobel_x_abs, cv2.COLOR_GRAY2BGR)
 sobel_y_bgr = cv2.cvtColor(sobel_y_abs, cv2.COLOR_GRAY2BGR)
 sobel_hv_bgr = cv2.cvtColor(sobel_hv, cv2.COLOR_GRAY2BGR)
 sobel_completo_bgr = cv2.cvtColor(sobel_completo, cv2.COLOR_GRAY2BGR)
-
-# Inverter a imagem Sobel completa
-sobel_invertida = cv2.bitwise_not(sobel_completo_bgr)
-
+ 
 # Processamento em escala de cinza
 sobel_cinza = cv2.cvtColor(sobel_invertida, cv2.COLOR_BGR2GRAY)
 sobel_cinza = cv2.convertScaleAbs(sobel_cinza)
