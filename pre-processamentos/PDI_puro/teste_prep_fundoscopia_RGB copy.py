@@ -2,11 +2,57 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt 
 #from bm3d import bm3d
+import cv2
+import numpy as np
+
+def equalizar_colorida_hsv(imagem):
+ 
+    # Converter BGR para HSV
+    hsv = cv2.cvtColor(imagem, cv2.COLOR_BGR2HSV)
+    
+    # Separar canais
+    h, s, v = cv2.split(hsv)
+    
+    # Equalizar apenas o canal V (Value/Intensidade)
+    v_equalizado = cv2.equalizeHist(v)
+    
+    # Juntar novamente
+    hsv_equalizado = cv2.merge([h, s, v_equalizado])
+    
+    # Converter de volta para BGR
+    resultado = cv2.cvtColor(hsv_equalizado, cv2.COLOR_HSV2BGR)
+    
+    return resultado
+def equalizar_com_correcao_cor(imagem):
+    """
+    Equaliza mantendo o equilíbrio de cores
+    """
+    # Equalizar HSV
+    hsv = cv2.cvtColor(imagem, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
+    v_eq = cv2.equalizeHist(v)
+    hsv_eq = cv2.merge([h, s, v_eq])
+    img_eq = cv2.cvtColor(hsv_eq, cv2.COLOR_HSV2BGR)
+    
+    # Corrigir saturação exagerada
+    hsv_eq2 = cv2.cvtColor(img_eq, cv2.COLOR_BGR2HSV)
+    h2, s2, v2 = cv2.split(hsv_eq2)
+    
+    # Limitar saturação para não estourar
+    s2 = np.clip(s2, 0, 200)
+    
+    hsv_final = cv2.merge([h2, s2, v2])
+    resultado = cv2.cvtColor(hsv_final, cv2.COLOR_HSV2BGR)
+    
+    return resultado
+ 
 
 img = cv2.imread("/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original/65_A.png")
 img = cv2.resize(img,(1080,1080))
 
-
+img_equalizada = equalizar_com_correcao_cor(img)
+cv2.imshow("img_equalizada", img_equalizada)
+cv2.waitKey(0)
 sobel_x = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
 sobel_y = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
 
@@ -292,23 +338,7 @@ axes[1, 1].axis('off')
 
 
 
+
+
 plt.tight_layout()
 plt.show()
-
-
- 
-# 1. Limiar simples
-_, thresh_simples = cv2.threshold(G_imagem, 127, 255, cv2.THRESH_BINARY)
-
-# 2. Limiar adaptativo (melhor para iluminação variável)
-thresh_adaptativo = cv2.adaptiveThreshold(
-    G_imagem, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-    cv2.THRESH_BINARY, 11, 2
-)
-
-# 3. Limiar de Otsu (automático)
-_, thresh_otsu = cv2.threshold(G_imagem, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-cv2.imshow("thresh_simples",thresh_simples)
-cv2.imshow("thresh_adaptativo",thresh_adaptativo)
-cv2.imshow("thresh_otsu",thresh_otsu)
-cv2.waitKey(0)

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 # Carregar e redimensionar a imagem
-img = cv2.imread("/home/lesc/Documentos/Bancos de dados/FIVE/train/Original/65_A.png")
+img = cv2.imread("/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original/65_A.png")
 img = cv2.resize(img, (512, 521))
 
 # Separar os 3 canais de cores (BGR - padrão OpenCV)
@@ -318,21 +318,21 @@ plt.show()
 '''
 # ---------- SALVAR RESULTADOS ----------
 print("\n💾 Salvando resultados...")
-
+pasta_para_as_imagens="/home/emanuel/Documentos/mestrado/treino dos modelos/pre-processamentos/PDI_puro/imagens_rgb_sobel_canny/"
 # Salvar cada canal individualmente
-cv2.imwrite("sobel_R_completo.png", resultados_r['completo'])
-cv2.imwrite("sobel_G_completo.png", resultados_g['completo'])
-cv2.imwrite("sobel_B_completo.png", resultados_b['completo'])
+cv2.imwrite(pasta_para_as_imagens+"sobel_R_completo.png", resultados_r['completo'])
+cv2.imwrite(pasta_para_as_imagens+"sobel_G_completo.png", resultados_g['completo'])
+cv2.imwrite(pasta_para_as_imagens+"sobel_B_completo.png", resultados_b['completo'])
 
 # Salvar combinações
-cv2.imwrite("sobel_RGB_media.png", sobel_completo_rgb_media)
-cv2.imwrite("sobel_RGB_max.png", sobel_completo_rgb_max)
-cv2.imwrite("sobel_RGB_soma.png", sobel_completo_rgb_soma)
-sobel_soma_suavisado= cv2.bilateralFilter(sobel_completo_rgb_soma, 9, 75, 75)
-cv2.imwrite("sobel_soma_suavisado.png", sobel_soma_suavisado)
-sobel_soma_canny=cv2.Canny(sobel_soma_suavisado,threshold1=60,threshold2=100)
-cv2.imwrite("sobel_soma_canny.png", sobel_soma_canny)
-cv2.imwrite("sobel_RGB_soma_equalizado.png", cv2.equalizeHist(sobel_completo_rgb_soma))
+cv2.imwrite(pasta_para_as_imagens+"sobel_RGB_media.png", sobel_completo_rgb_media)
+cv2.imwrite(pasta_para_as_imagens+"sobel_RGB_max.png", sobel_completo_rgb_max)
+cv2.imwrite(pasta_para_as_imagens+"sobel_RGB_soma.png", sobel_completo_rgb_soma)
+sobel_soma_suavisado= cv2.bilateralFilter(sobel_completo_rgb_soma, 9, 90, 90)
+cv2.imwrite(pasta_para_as_imagens+"sobel_soma_suavisado.png", sobel_soma_suavisado)
+sobel_soma_canny=cv2.Canny(sobel_soma_suavisado,threshold1=30,threshold2=70)
+cv2.imwrite(pasta_para_as_imagens+"sobel_soma_canny.png", sobel_soma_canny)
+cv2.imwrite(pasta_para_as_imagens+"sobel_RGB_soma_equalizado.png", cv2.equalizeHist(sobel_completo_rgb_soma))
 
 
 # Salvar imagem original processada (como no seu código)

@@ -3,13 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt 
 
 
-img = cv2.imread("/home/lesc/Documentos/Bancos de dados/FIVE/train/Original/65_A.png")
+img = cv2.imread("/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original/65_A.png")
+
+gabarito = cv2.imread("/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Ground truth/65_A.png")
+
+
+
 img = cv2.resize(img,(512,521))
 
 
 sobel_x = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
 sobel_y = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
-
+ 
 sobel = np.sqrt(sobel_x**2 + sobel_y**2)
 sobel = cv2.convertScaleAbs(sobel)
 img_cinza = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -27,15 +32,27 @@ sobel_cinza =  cv2.convertScaleAbs(cv2.cvtColor(sobel_invertida, cv2.COLOR_RGB2G
 sobel_binario=cv2.adaptiveThreshold( sobel_cinza,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                     cv2.THRESH_BINARY,11,2)
 
-sobel_canny= cv2.Canny(sobel_cinza, threshold1=10, threshold2=255)
+ 
+sobel_canny= cv2.Canny(sobel_cinza, threshold1=0, threshold2=250)
 sobel_equalizado=cv2.equalizeHist(sobel_cinza)
+sobel_g=cv2.GaussianBlur(sobel_equalizado,(3,3),3)
+sobel_equal_canny=cv2.Canny(sobel_g, threshold1=10, threshold2=20)
+sobel_equalizado_invertida = cv2.bitwise_not(sobel_equalizado)
+thresh = cv2.adaptiveThreshold(
+            sobel_cinza, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 11, 2
+        )
+cv2.imshow("thresh", thresh)
+
 cv2.imshow("sobel_equalizado", sobel_equalizado)
+#cv2.imshow("sobel_equal_canny", sobel_equal_canny)
+cv2.imshow("sobel_equalizado_invertida",sobel_equalizado_invertida)
 cv2.imshow("sobel cinza", sobel_cinza)
 cv2.imshow("sobel_canny", sobel_canny)
 cv2.waitKey(0)
 
 
-hist = cv2.calcHist([sobel_cinza], [0], None, [256], [0, 256])
+hist = cv2.calcHist([sobel_equalizado_invertida], [0], None, [256], [0, 256])
 
 plt.figure(figsize=(8,4))
 plt.plot(hist)

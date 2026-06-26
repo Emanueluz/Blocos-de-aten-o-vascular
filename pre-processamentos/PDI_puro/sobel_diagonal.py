@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Carregar e redimensionar a imagem
-img = cv2.imread("/home/lesc/Documentos/Bancos de dados/FIVE/train/Original/65_A.png")
+img = cv2.imread("/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original/65_A.png")
 
 # Converter para escala de cinza para processamento
 img_cinza = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
