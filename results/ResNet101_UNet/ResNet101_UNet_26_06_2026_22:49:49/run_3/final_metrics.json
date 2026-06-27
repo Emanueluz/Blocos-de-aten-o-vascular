@@ -1,0 +1,22 @@
+{
+    "run_id": 3,
+    "model_name": "ResNet101_UNet",
+    "best_val_dice": 0.8403277140512022,
+    "final_val_dice": 0.8310458720527943,
+    "final_train_dice": 0.938294832503288,
+    "best_val_loss": 0.28890762478113174,
+    "final_val_loss": 0.293605700135231,
+    "final_train_loss": 0.1421612759431203,
+    "best_epoch": 32,
+    "total_epochs": 42,
+    "early_stopped": true,
+    "stopped_epoch": 42,
+    "final_val_accuracy": 0.9766087953736182,
+    "final_train_accuracy": 0.9909376909943663,
+    "final_val_iou": 0.7110044231923826,
+    "final_train_iou": 0.8838053543577763,
+    "final_val_sensitivity": 0.7685471376005242,
+    "final_train_sensitivity": 0.9276129085443151,
+    "final_val_specificity": 0.9934362588446248,
+    "final_train_specificity": 0.9960607510202734
+}
