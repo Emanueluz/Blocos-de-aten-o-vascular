@@ -1,0 +1,148 @@
+====================================================================================================
+                              RELATÓRIO DE EXECUÇÕES
+====================================================================================================
+
+📌 MODELO: EfficientNetB0_UNet_Canny
+📅 DATA: 2026-07-07 23:40:50
+📐 TAMANHO DA IMAGEM: 224x224
+🎨 MODO DE ENTRADA: grayscale
+📊 NÚMERO DE EXECUÇÕES: 5
+🔄 ÉPOCAS MÁXIMAS: 50
+⏳ PACIÊNCIA (EARLY STOPPING): 10 épocas
+📈 MIN_DELTA: 0.001
+💻 DISPOSITIVO: cuda
+⏱️ MEDIÇÃO DE TEMPO: Ativada
+📁 EXPERIMENTO: EfficientNetB0_UNet_Canny_07-07-2026_23:16:45
+----------------------------------------------------------------------------------------------------
+
+📊 MÉTRICAS FINAIS (Média ± Desvio Padrão):
+--------------------------------------------------
+  Val Dice: 0.5583 ± 0.0026 [0.5539 - 0.5607]
+  Train Dice: 0.7288 ± 0.0145 [0.7069 - 0.7435]
+  Val Loss: 0.6998 ± 0.0076 [0.6895 - 0.7107]
+  Train Loss: 0.4588 ± 0.0204 [0.4369 - 0.4899]
+  Train Epoch Total Time: 6.9463 ± 0.7158 [6.0175 - 7.8083]
+  Train Batch Forward Time Mean: 0.0482 ± 0.0108 [0.0381 - 0.0636]
+  Train Batch Forward Time Std: 0.0193 ± 0.0111 [0.0079 - 0.0357]
+  Train Batch Forward Time Min: 0.0305 ± 0.0011 [0.0292 - 0.0320]
+  Train Batch Forward Time Max: 0.1080 ± 0.0423 [0.0572 - 0.1527]
+  Train Data Load Time Mean: 0.0007 ± 0.0001 [0.0006 - 0.0008]
+  Train Data Load Time Total: 0.0209 ± 0.0017 [0.0184 - 0.0227]
+  Train Batches Per Second: 4.3563 ± 0.4575 [3.8420 - 4.9853]
+  Val Epoch Total Time: 1.9590 ± 0.0996 [1.8069 - 2.0522]
+  Val Inference Time Mean: 0.0140 ± 0.0012 [0.0122 - 0.0150]
+  Val Inference Time Std: 0.0071 ± 0.0015 [0.0056 - 0.0090]
+  Val Inference Time Min: 0.0089 ± 0.0003 [0.0086 - 0.0095]
+  Val Inference Time Max: 0.0302 ± 0.0055 [0.0240 - 0.0371]
+  Val Inferences Per Second: 4.0921 ± 0.2154 [3.8980 - 4.4270]
+  Val Accuracy: 0.9366 ± 0.0010 [0.9352 - 0.9375]
+  Train Accuracy: 0.9603 ± 0.0022 [0.9570 - 0.9625]
+  Val Iou: 0.3881 ± 0.0025 [0.3840 - 0.3904]
+  Train Iou: 0.5736 ± 0.0178 [0.5468 - 0.5918]
+  Val Sensitivity: 0.5378 ± 0.0065 [0.5326 - 0.5489]
+  Train Sensitivity: 0.7166 ± 0.0132 [0.6982 - 0.7312]
+  Val Specificity: 0.9687 ± 0.0015 [0.9663 - 0.9701]
+  Train Specificity: 0.9799 ± 0.0013 [0.9778 - 0.9811]
+
+==================================================
+⏱️ MÉTRICAS DE TEMPO (Média ± Desvio Padrão):
+--------------------------------------------------
+  Total Training Time: 283.05 ± 15.96 [260.68 - 305.05] (s)
+  Avg Train Epoch Time: 6.61 ± 0.53 [5.95 - 7.17] (s)
+  Avg Val Epoch Time: 1.94 ± 0.15 [1.76 - 2.09] (s)
+  Final Train Epoch Total Time: 6.95 ± 0.72 [6.02 - 7.81] (s)
+  Final Val Epoch Total Time: 1.96 ± 0.10 [1.81 - 2.05] (s)
+  Final Train Batch Forward Time Mean: 0.05 ± 0.01 [0.04 - 0.06] (s)
+  Final Val Inference Time Mean: 0.01 ± 0.00 [0.01 - 0.02] (s)
+
+--------------------------------------------------
+🏆 MELHORES RESULTADOS POR EXECUÇÃO:
+--------------------------------------------------
+  Run 0: Época 28 - Dice: 0.5643 - IoU: 0.3939
+  Run 1: Época 26 - Dice: 0.5671 - IoU: 0.3966
+  Run 2: Época 18 - Dice: 0.5624 - IoU: 0.3920
+  Run 3: Época 21 - Dice: 0.5654 - IoU: 0.3950
+  Run 4: Época 23 - Dice: 0.5616 - IoU: 0.3912
+
+--------------------------------------------------
+📈 MÉDIAS DOS MELHORES RESULTADOS:
+--------------------------------------------------
+  Epoch: 23.2000 ± 3.9623
+  Val Dice: 0.5641 ± 0.0022
+  Val Loss: 0.6869 ± 0.0025
+  Val Iou: 0.3937 ± 0.0022
+  Val Accuracy: 0.9362 ± 0.0009
+  Train Dice: 0.6815 ± 0.0172
+
+--------------------------------------------------
+📋 DETALHES POR EXECUÇÃO:
+--------------------------------------------------
+
+  Run 0:
+    Melhor Dice: 0.5643 (época 28)
+    Dice Final: 0.5539
+    IoU Final: 0.3840
+    Accuracy Final: 0.9359
+    Sensitivity Final: 0.5340
+    Specificity Final: 0.9683
+    ⏱️ Tempo total de treinamento: 305.05s
+    ⏱️ Tempo médio por época (train): 6.19s
+    ⏱️ Tempo médio por época (val): 1.81s
+    Early Stopping: Sim
+    Épocas treinadas: 38
+
+  Run 1:
+    Melhor Dice: 0.5671 (época 26)
+    Dice Final: 0.5595
+    IoU Final: 0.3894
+    Accuracy Final: 0.9375
+    Sensitivity Final: 0.5326
+    Specificity Final: 0.9701
+    ⏱️ Tempo total de treinamento: 279.12s
+    ⏱️ Tempo médio por época (train): 5.95s
+    ⏱️ Tempo médio por época (val): 1.76s
+    Early Stopping: Sim
+    Épocas treinadas: 36
+
+  Run 2:
+    Melhor Dice: 0.5624 (época 18)
+    Dice Final: 0.5607
+    IoU Final: 0.3904
+    Accuracy Final: 0.9374
+    Sensitivity Final: 0.5369
+    Specificity Final: 0.9696
+    ⏱️ Tempo total de treinamento: 260.68s
+    ⏱️ Tempo médio por época (train): 7.17s
+    ⏱️ Tempo médio por época (val): 2.09s
+    Early Stopping: Sim
+    Épocas treinadas: 28
+
+  Run 3:
+    Melhor Dice: 0.5654 (época 21)
+    Dice Final: 0.5593
+    IoU Final: 0.3891
+    Accuracy Final: 0.9370
+    Sensitivity Final: 0.5366
+    Specificity Final: 0.9693
+    ⏱️ Tempo total de treinamento: 282.98s
+    ⏱️ Tempo médio por época (train): 7.06s
+    ⏱️ Tempo médio por época (val): 2.02s
+    Early Stopping: Sim
+    Épocas treinadas: 31
+
+  Run 4:
+    Melhor Dice: 0.5616 (época 23)
+    Dice Final: 0.5579
+    IoU Final: 0.3878
+    Accuracy Final: 0.9352
+    Sensitivity Final: 0.5489
+    Specificity Final: 0.9663
+    ⏱️ Tempo total de treinamento: 287.42s
+    ⏱️ Tempo médio por época (train): 6.66s
+    ⏱️ Tempo médio por época (val): 2.02s
+    Early Stopping: Sim
+    Épocas treinadas: 33
+
+====================================================================================================
+                                        FIM DO RELATÓRIO
+====================================================================================================

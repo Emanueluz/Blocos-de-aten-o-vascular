@@ -1,0 +1,23 @@
+{
+    "run_id": 0,
+    "model_name": "SwinUNet",
+    "img_size": 224,
+    "best_val_dice": 0.7859128496379247,
+    "final_val_dice": 0.7857569583415854,
+    "final_train_dice": 0.8558279617001866,
+    "best_val_loss": 0.37886099219322206,
+    "final_val_loss": 0.4076245278120041,
+    "final_train_loss": 0.24777556012074153,
+    "best_epoch": 21,
+    "total_epochs": 29,
+    "early_stopped": true,
+    "stopped_epoch": 29,
+    "final_val_accuracy": 0.968006450627126,
+    "final_train_accuracy": 0.9782833592421343,
+    "final_val_iou": 0.6474120753482727,
+    "final_train_iou": 0.7482375212591796,
+    "final_val_sensitivity": 0.7863393859579777,
+    "final_train_sensitivity": 0.8667167162314677,
+    "final_val_specificity": 0.9825841498604373,
+    "final_train_specificity": 0.9872661553139263
+}

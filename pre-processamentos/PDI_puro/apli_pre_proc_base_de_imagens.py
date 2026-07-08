@@ -3,32 +3,22 @@ import numpy as np
 import os
 from pathlib import Path
 import time
-
+ 
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
+ 
 DIRETORIO_ENTRADA = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original"
-DIRETORIO_SAIDA = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/imagens_3canais_sobel_canny"
-import cv2
-import numpy as np
-import os
-from pathlib import Path
-import time
-
-# ============================================================
-# CONFIGURAÇÕES
-# ============================================================
-DIRETORIO_ENTRADA = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original"
-
+ 
 # DIRETÓRIOS DE SAÍDA SEPARADOS (cada um é um diretório raiz)
-DIRETORIO_R =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/canal_R"
-DIRETORIO_G =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/canal_G"
-DIRETORIO_B =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/canal_B"
-DIRETORIO_MEDIA =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/media"
-DIRETORIO_MAX =        "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/max"
-DIRETORIO_SOMA =       "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/soma"
-DIRETORIO_CANNY =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/canny"
-DIRETORIO_EQUALIZADO = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/equalizado"
+DIRETORIO_R =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canal_R"
+DIRETORIO_G =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canal_G"
+DIRETORIO_B =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canal_B"
+DIRETORIO_MEDIA =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/media"
+DIRETORIO_MAX =        "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/max"
+DIRETORIO_SOMA =       "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/soma"
+DIRETORIO_CANNY =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canny"
+DIRETORIO_EQUALIZADO = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/equalizado"
 
 # Extensões de imagem suportadas
 EXTENSOES = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif')
@@ -77,7 +67,7 @@ def processar_imagem(caminho_imagem):
         return False
     
     # Redimensionar para 512x512
-    img = cv2.resize(img, (512, 512))
+    img = cv2.resize(img, (512,512))
     
     # Separar canais
     b, g, r = cv2.split(img)

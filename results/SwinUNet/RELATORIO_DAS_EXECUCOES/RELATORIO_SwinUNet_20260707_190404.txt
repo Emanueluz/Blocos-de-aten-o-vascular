@@ -1,0 +1,101 @@
+====================================================================================================
+                              RELATÓRIO DE EXECUÇÕES
+====================================================================================================
+
+📌 MODELO: SwinUNet
+📅 DATA: 2026-07-07 19:04:04
+📐 TAMANHO DA IMAGEM: 224x224
+📊 EXECUÇÕES: 5
+🔄 ÉPOCAS MÁXIMAS: 50
+⏳ PACIÊNCIA: 10
+💻 DISPOSITIVO: cuda
+----------------------------------------------------------------------------------------------------
+
+📊 MÉTRICAS FINAIS (Média ± Desvio Padrão):
+--------------------------------------------------
+  Val Dice: 0.7850 ± 0.0013 [0.7834 - 0.7865]
+  Train Dice: 0.8613 ± 0.0066 [0.8535 - 0.8696]
+  Val Loss: 0.4123 ± 0.0073 [0.4072 - 0.4247]
+  Train Loss: 0.2402 ± 0.0096 [0.2284 - 0.2520]
+  Val Accuracy: 0.9679 ± 0.0003 [0.9674 - 0.9681]
+  Train Accuracy: 0.9791 ± 0.0010 [0.9779 - 0.9804]
+  Val Iou: 0.6464 ± 0.0017 [0.6443 - 0.6485]
+  Train Iou: 0.7568 ± 0.0102 [0.7447 - 0.7696]
+  Val Sensitivity: 0.7859 ± 0.0043 [0.7816 - 0.7921]
+  Train Sensitivity: 0.8717 ± 0.0063 [0.8638 - 0.8795]
+  Val Specificity: 0.9825 ± 0.0006 [0.9815 - 0.9831]
+  Train Specificity: 0.9878 ± 0.0006 [0.9871 - 0.9885]
+
+🏆 MELHORES POR EXECUÇÃO:
+--------------------------------------------------
+  Run 0: Época 21 - Dice: 0.7859 - IoU: 0.6476
+  Run 1: Época 23 - Dice: 0.7876 - IoU: 0.6499
+  Run 2: Época 23 - Dice: 0.7863 - IoU: 0.6481
+  Run 3: Época 25 - Dice: 0.7864 - IoU: 0.6482
+  Run 4: Época 29 - Dice: 0.7865 - IoU: 0.6485
+
+📈 MÉDIAS DOS MELHORES:
+--------------------------------------------------
+  Epoch: 24.2000 ± 3.0332
+  Val Dice: 0.7865 ± 0.0006
+  Val Loss: 0.3949 ± 0.0073
+  Val Iou: 0.6485 ± 0.0008
+  Val Accuracy: 0.9683 ± 0.0003
+  Train Dice: 0.8422 ± 0.0072
+
+📋 DETALHES POR EXECUÇÃO:
+--------------------------------------------------
+
+  Run 0:
+    Melhor Dice: 0.7859 (época 21)
+    Dice Final: 0.7858
+    IoU Final: 0.6474
+    Accuracy Final: 0.9680
+    Sensitivity Final: 0.7863
+    Specificity Final: 0.9826
+    Early Stopping: Sim
+    Épocas treinadas: 29
+
+  Run 1:
+    Melhor Dice: 0.7876 (época 23)
+    Dice Final: 0.7853
+    IoU Final: 0.6468
+    Accuracy Final: 0.9681
+    Sensitivity Final: 0.7816
+    Specificity Final: 0.9831
+    Early Stopping: Sim
+    Épocas treinadas: 33
+
+  Run 2:
+    Melhor Dice: 0.7863 (época 23)
+    Dice Final: 0.7834
+    IoU Final: 0.6443
+    Accuracy Final: 0.9677
+    Sensitivity Final: 0.7821
+    Specificity Final: 0.9827
+    Early Stopping: Sim
+    Épocas treinadas: 33
+
+  Run 3:
+    Melhor Dice: 0.7864 (época 25)
+    Dice Final: 0.7840
+    IoU Final: 0.6450
+    Accuracy Final: 0.9674
+    Sensitivity Final: 0.7921
+    Specificity Final: 0.9815
+    Early Stopping: Sim
+    Épocas treinadas: 35
+
+  Run 4:
+    Melhor Dice: 0.7865 (época 29)
+    Dice Final: 0.7865
+    IoU Final: 0.6485
+    Accuracy Final: 0.9681
+    Sensitivity Final: 0.7873
+    Specificity Final: 0.9826
+    Early Stopping: Sim
+    Épocas treinadas: 29
+
+====================================================================================================
+FIM DO RELATÓRIO
+====================================================================================================

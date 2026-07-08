@@ -1,0 +1,23 @@
+{
+    "run_id": 0,
+    "model_name": "ViTUNet",
+    "img_size": 224,
+    "best_val_dice": 0.4143390122884854,
+    "final_val_dice": 0.39473495195349,
+    "final_train_dice": 0.7258317664649188,
+    "best_val_loss": 0.9281772573788961,
+    "final_val_loss": 0.9397601127624512,
+    "final_train_loss": 0.5445855528116226,
+    "best_epoch": 17,
+    "total_epochs": 26,
+    "early_stopped": true,
+    "stopped_epoch": 26,
+    "final_val_accuracy": 0.9173399633290817,
+    "final_train_accuracy": 0.9607056079267644,
+    "final_val_iou": 0.2463306901159411,
+    "final_train_iou": 0.5697846241237039,
+    "final_val_sensitivity": 0.36045720865870784,
+    "final_train_sensitivity": 0.6992342937492586,
+    "final_val_specificity": 0.9623635717190301,
+    "final_train_specificity": 0.9818156879673506
+}

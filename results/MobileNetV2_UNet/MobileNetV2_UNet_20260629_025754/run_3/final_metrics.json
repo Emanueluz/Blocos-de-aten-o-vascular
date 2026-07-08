@@ -1,0 +1,23 @@
+{
+    "run_id": 3,
+    "model_name": "MobileNetV2_UNet",
+    "img_size": 224,
+    "best_val_dice": 0.823022665030086,
+    "final_val_dice": 0.822067125323314,
+    "final_train_dice": 0.8921987377476278,
+    "best_val_loss": 0.3010818585753441,
+    "final_val_loss": 0.3021245561540127,
+    "final_train_loss": 0.20057157725095748,
+    "best_epoch": 38,
+    "total_epochs": 48,
+    "early_stopped": true,
+    "stopped_epoch": 48,
+    "final_val_accuracy": 0.9735820536710779,
+    "final_train_accuracy": 0.9838111098931761,
+    "final_val_iou": 0.6979331699192028,
+    "final_train_iou": 0.8054440899040574,
+    "final_val_sensitivity": 0.8151703427762972,
+    "final_train_sensitivity": 0.9003783028309846,
+    "final_val_specificity": 0.9863808433301594,
+    "final_train_specificity": 0.990560444972963
+}

@@ -1,0 +1,23 @@
+{
+    "run_id": 0,
+    "model_name": "VGG19_UNet",
+    "img_size": 224,
+    "best_val_dice": 0.8498786534647059,
+    "final_val_dice": 0.8441462166639542,
+    "final_train_dice": 0.8597359099769832,
+    "best_val_loss": 0.24531381018459797,
+    "final_val_loss": 0.2530821543186903,
+    "final_train_loss": 0.22784216254949569,
+    "best_epoch": 49,
+    "total_epochs": 50,
+    "early_stopped": false,
+    "stopped_epoch": 50,
+    "final_val_accuracy": 0.9784732740752551,
+    "final_train_accuracy": 0.9797314702248089,
+    "final_val_iou": 0.7305529856025881,
+    "final_train_iou": 0.75412851711302,
+    "final_val_sensitivity": 0.7859455062621808,
+    "final_train_sensitivity": 0.8340339943953613,
+    "final_val_specificity": 0.9938746576150431,
+    "final_train_specificity": 0.991464024621051
+}

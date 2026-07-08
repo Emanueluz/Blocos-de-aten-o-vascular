@@ -1,0 +1,107 @@
+====================================================================================================
+                              RELATÓRIO DE EXECUÇÕES
+====================================================================================================
+
+📌 MODELO: EfficientNetB0_UNet_equalizado
+📅 DATA: 2026-07-07 23:06:36
+📐 TAMANHO DA IMAGEM: 224x224
+🎨 MODO DE ENTRADA: grayscale
+📊 NÚMERO DE EXECUÇÕES: 5
+🔄 ÉPOCAS MÁXIMAS: 50
+⏳ PACIÊNCIA (EARLY STOPPING): 10 épocas
+📈 MIN_DELTA: 0.001
+💻 DISPOSITIVO: cuda
+📁 EXPERIMENTO: EfficientNetB0_UNet_equalizado_07-07-2026_22:37:43
+----------------------------------------------------------------------------------------------------
+
+📊 MÉTRICAS FINAIS (Média ± Desvio Padrão):
+--------------------------------------------------
+  Val Dice: 0.6667 ± 0.0015 [0.6649 - 0.6688]
+  Train Dice: 0.8134 ± 0.0073 [0.8036 - 0.8199]
+  Val Loss: 0.5466 ± 0.0034 [0.5435 - 0.5517]
+  Train Loss: 0.3276 ± 0.0121 [0.3167 - 0.3449]
+  Val Accuracy: 0.9524 ± 0.0007 [0.9514 - 0.9533]
+  Train Accuracy: 0.9724 ± 0.0011 [0.9708 - 0.9734]
+  Val Iou: 0.5009 ± 0.0017 [0.4988 - 0.5034]
+  Train Iou: 0.6856 ± 0.0103 [0.6717 - 0.6949]
+  Val Sensitivity: 0.6391 ± 0.0106 [0.6271 - 0.6535]
+  Train Sensitivity: 0.8085 ± 0.0066 [0.8014 - 0.8157]
+  Val Specificity: 0.9776 ± 0.0016 [0.9754 - 0.9796]
+  Train Specificity: 0.9856 ± 0.0007 [0.9844 - 0.9862]
+
+--------------------------------------------------
+🏆 MELHORES RESULTADOS POR EXECUÇÃO:
+--------------------------------------------------
+  Run 0: Época 34 - Dice: 0.6714 - IoU: 0.5062
+  Run 1: Época 32 - Dice: 0.6721 - IoU: 0.5069
+  Run 2: Época 42 - Dice: 0.6712 - IoU: 0.5060
+  Run 3: Época 35 - Dice: 0.6728 - IoU: 0.5077
+  Run 4: Época 35 - Dice: 0.6721 - IoU: 0.5069
+
+--------------------------------------------------
+📈 MÉDIAS DOS MELHORES RESULTADOS:
+--------------------------------------------------
+  Epoch: 35.6000 ± 3.7815
+  Val Dice: 0.6719 ± 0.0006
+  Val Loss: 0.5353 ± 0.0022
+  Val Iou: 0.5067 ± 0.0007
+  Val Accuracy: 0.9525 ± 0.0004
+  Train Dice: 0.7930 ± 0.0066
+
+--------------------------------------------------
+📋 DETALHES POR EXECUÇÃO:
+--------------------------------------------------
+
+  Run 0:
+    Melhor Dice: 0.6714 (época 34)
+    Dice Final: 0.6671
+    IoU Final: 0.5013
+    Accuracy Final: 0.9514
+    Sensitivity Final: 0.6535
+    Specificity Final: 0.9754
+    Early Stopping: Sim
+    Épocas treinadas: 39
+
+  Run 1:
+    Melhor Dice: 0.6721 (época 32)
+    Dice Final: 0.6657
+    IoU Final: 0.4997
+    Accuracy Final: 0.9526
+    Sensitivity Final: 0.6342
+    Specificity Final: 0.9782
+    Early Stopping: Sim
+    Épocas treinadas: 42
+
+  Run 2:
+    Melhor Dice: 0.6712 (época 42)
+    Dice Final: 0.6688
+    IoU Final: 0.5034
+    Accuracy Final: 0.9523
+    Sensitivity Final: 0.6464
+    Specificity Final: 0.9769
+    Early Stopping: Sim
+    Épocas treinadas: 48
+
+  Run 3:
+    Melhor Dice: 0.6728 (época 35)
+    Dice Final: 0.6669
+    IoU Final: 0.5011
+    Accuracy Final: 0.9533
+    Sensitivity Final: 0.6271
+    Specificity Final: 0.9796
+    Early Stopping: Sim
+    Épocas treinadas: 40
+
+  Run 4:
+    Melhor Dice: 0.6721 (época 35)
+    Dice Final: 0.6649
+    IoU Final: 0.4988
+    Accuracy Final: 0.9523
+    Sensitivity Final: 0.6345
+    Specificity Final: 0.9779
+    Early Stopping: Sim
+    Épocas treinadas: 45
+
+====================================================================================================
+                                        FIM DO RELATÓRIO
+====================================================================================================

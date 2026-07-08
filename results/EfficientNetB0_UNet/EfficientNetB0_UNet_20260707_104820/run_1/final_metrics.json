@@ -1,0 +1,23 @@
+{
+    "run_id": 1,
+    "model_name": "EfficientNetB0_UNet",
+    "img_size": 224,
+    "best_val_dice": 0.8479546281966241,
+    "final_val_dice": 0.8453090439813365,
+    "final_train_dice": 0.8962510248144496,
+    "best_val_loss": 0.2664666995406151,
+    "final_val_loss": 0.2684754841029644,
+    "final_train_loss": 0.18702817410230638,
+    "best_epoch": 44,
+    "total_epochs": 50,
+    "early_stopped": false,
+    "stopped_epoch": 50,
+    "final_val_accuracy": 0.9767568160076531,
+    "final_train_accuracy": 0.984459452726403,
+    "final_val_iou": 0.7321313742781158,
+    "final_train_iou": 0.8120923100225546,
+    "final_val_sensitivity": 0.8490589374932344,
+    "final_train_sensitivity": 0.903234489544688,
+    "final_val_specificity": 0.9870646430116436,
+    "final_train_specificity": 0.9909932220135499
+}
