@@ -15,6 +15,8 @@ import pandas as pd
 from datetime import datetime
 import json
 import warnings
+import time  # ADICIONADO
+
 warnings.filterwarnings('ignore')
 
 # ============================================
@@ -46,6 +48,9 @@ class Config:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     best_model_path = './best_resnet101_segmentation.pth'
     
+    # NOVA CONFIGURAÇÃO: Métricas de tempo
+    measure_time = True  # Ativar/desativar medição de tempo
+
 config = Config()
 
 # Criar diretório de resultados principal
@@ -62,6 +67,13 @@ os.makedirs(experiment_dir, exist_ok=True)
 # Criar diretório para relatórios consolidados
 reports_dir = os.path.join(network_dir, f'RELATORIO_DAS_EXECUCOES')
 os.makedirs(reports_dir, exist_ok=True)
+
+print(f"✅ Diretórios criados:")
+print(f"   Network: {network_dir}")
+print(f"   Experimento: {experiment_dir}")
+print(f"   Relatórios: {reports_dir}")
+print(f"   Device: {config.device}")
+print()
 
 # ============================================
 # FUNÇÃO AUXILIAR PARA CONVERTER PARA TIPOS PYTHON
@@ -82,6 +94,8 @@ def convert_to_serializable(obj):
         return [convert_to_serializable(v) for v in obj]
     elif isinstance(obj, tuple):
         return tuple(convert_to_serializable(v) for v in obj)
+    elif isinstance(obj, (datetime, pd.Timestamp)):
+        return obj.isoformat()
     else:
         return obj
 
@@ -277,22 +291,36 @@ def compute_metrics(preds, targets, threshold=0.5):
     }
 
 # ============================================
-# FUNÇÕES DE TREINAMENTO (modificadas para retornar histórico)
+# FUNÇÕES DE TREINAMENTO COM MEDIÇÃO DE TEMPO
 # ============================================
-def train_epoch(model, train_loader, criterion, optimizer, device):
+def train_epoch(model, train_loader, criterion, optimizer, device, measure_time=True):
     model.train()
     running_loss = 0.0
     metrics = {'accuracy': 0, 'dice': 0, 'iou': 0, 'sensitivity': 0, 'specificity': 0}
     
+    epoch_start_time = time.time()
+    batch_times = []
+    data_load_times = []
+    
     progress_bar = tqdm(train_loader, desc='Training')
-    for images, masks in progress_bar:
+    for batch_idx, (images, masks) in enumerate(progress_bar):
+        if measure_time:
+            data_load_start = time.time()
+        
         images, masks = images.to(device), masks.to(device)
+        
+        if measure_time:
+            data_load_times.append(time.time() - data_load_start)
+            forward_start = time.time()
         
         optimizer.zero_grad()
         outputs = model(images)
         loss = criterion(outputs, masks)
         loss.backward()
         optimizer.step()
+        
+        if measure_time:
+            batch_times.append(time.time() - forward_start)
         
         running_loss += loss.item()
         
@@ -306,22 +334,45 @@ def train_epoch(model, train_loader, criterion, optimizer, device):
         progress_bar.set_postfix({'loss': loss.item()})
     
     num_batches = len(train_loader)
+    avg_loss = running_loss / num_batches
     for k in metrics:
         metrics[k] /= num_batches
     
-    return running_loss / num_batches, metrics
+    time_metrics = {}
+    if measure_time and batch_times:
+        time_metrics = {
+            'epoch_total_time': time.time() - epoch_start_time,
+            'batch_forward_time_mean': np.mean(batch_times),
+            'batch_forward_time_std': np.std(batch_times),
+            'batch_forward_time_min': np.min(batch_times),
+            'batch_forward_time_max': np.max(batch_times),
+            'data_load_time_mean': np.mean(data_load_times) if data_load_times else 0,
+            'data_load_time_total': np.sum(data_load_times) if data_load_times else 0,
+            'batches_per_second': num_batches / (time.time() - epoch_start_time)
+        }
+    
+    return avg_loss, metrics, time_metrics
 
-def validate_epoch(model, val_loader, criterion, device):
+def validate_epoch(model, val_loader, criterion, device, measure_time=True):
     model.eval()
     running_loss = 0.0
     metrics = {'accuracy': 0, 'dice': 0, 'iou': 0, 'sensitivity': 0, 'specificity': 0}
     
+    epoch_start_time = time.time()
+    inference_times = []
+    
     with torch.no_grad():
         for images, masks in tqdm(val_loader, desc='Validation'):
+            if measure_time:
+                start_time = time.time()
+            
             images, masks = images.to(device), masks.to(device)
             
             outputs = model(images)
             loss = criterion(outputs, masks)
+            
+            if measure_time:
+                inference_times.append(time.time() - start_time)
             
             running_loss += loss.item()
             
@@ -333,13 +384,25 @@ def validate_epoch(model, val_loader, criterion, device):
                 metrics[k] += batch_metrics[k]
     
     num_batches = len(val_loader)
+    avg_loss = running_loss / num_batches
     for k in metrics:
         metrics[k] /= num_batches
     
-    return running_loss / num_batches, metrics
+    time_metrics = {}
+    if measure_time and inference_times:
+        time_metrics = {
+            'epoch_total_time': time.time() - epoch_start_time,
+            'inference_time_mean': np.mean(inference_times),
+            'inference_time_std': np.std(inference_times),
+            'inference_time_min': np.min(inference_times),
+            'inference_time_max': np.max(inference_times),
+            'inferences_per_second': num_batches / (time.time() - epoch_start_time)
+        }
+    
+    return avg_loss, metrics, time_metrics
 
 # ============================================
-# FUNÇÃO DE TREINAMENTO COM EARLY STOPPING (PACIÊNCIA)
+# FUNÇÃO DE TREINAMENTO COM EARLY STOPPING E TEMPO
 # ============================================
 def train_model(model, train_loader, val_loader, config, run_id=0):
     criterion = DiceBCELoss()
@@ -354,21 +417,29 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
     history = {
         'train_loss': [], 'val_loss': [], 
         'train_dice': [], 'val_dice': [],
-        'train_metrics': [], 'val_metrics': []
+        'train_metrics': [], 'val_metrics': [],
+        'train_time': [], 'val_time': []
     }
+    
+    training_start_time = time.time()
     
     print(f"\n🚀 Treinamento Run {run_id+1}/{config.n_runs} - {config.model_name}")
     print(f"Dispositivo: {config.device}")
     print(f"Total de parâmetros: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Paciência: {config.patience} épocas")
-    print(f"Épocas máximas: {config.epochs}\n")
+    print(f"Épocas máximas: {config.epochs}")
+    print(f"⏱️ Medição de tempo: {'Ativada' if config.measure_time else 'Desativada'}\n")
     
     for epoch in range(config.epochs):
         print(f"\n{'='*50}")
         print(f"Run {run_id+1} - Época {epoch+1}/{config.epochs}")
         
-        train_loss, train_metrics = train_epoch(model, train_loader, criterion, optimizer, config.device)
-        val_loss, val_metrics = validate_epoch(model, val_loader, criterion, config.device)
+        train_loss, train_metrics, train_time = train_epoch(
+            model, train_loader, criterion, optimizer, config.device, config.measure_time
+        )
+        val_loss, val_metrics, val_time = validate_epoch(
+            model, val_loader, criterion, config.device, config.measure_time
+        )
         
         scheduler.step(val_loss)
         
@@ -378,9 +449,17 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
         history['val_dice'].append(val_metrics['dice'])
         history['train_metrics'].append(train_metrics)
         history['val_metrics'].append(val_metrics)
+        history['train_time'].append(train_time)
+        history['val_time'].append(val_time)
         
         print(f"\n📊 Treino - Loss: {train_loss:.4f} | Dice: {train_metrics['dice']:.4f} | IoU: {train_metrics['iou']:.4f}")
         print(f"📊 Validação - Loss: {val_loss:.4f} | Dice: {val_metrics['dice']:.4f} | IoU: {val_metrics['iou']:.4f}")
+        
+        if config.measure_time:
+            print(f"⏱️  Treino: {train_time.get('epoch_total_time', 0):.2f}s | "
+                  f"Batch: {train_time.get('batch_forward_time_mean', 0):.3f}s")
+            print(f"⏱️  Validação: {val_time.get('epoch_total_time', 0):.2f}s | "
+                  f"Inferência: {val_time.get('inference_time_mean', 0):.3f}s")
         
         # Verificar melhora
         if val_metrics['dice'] > best_dice + config.min_delta:
@@ -400,12 +479,15 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
             print(f"Melhor Dice: {best_dice:.4f} (época {best_epoch+1})")
             break
     
+    total_training_time = time.time() - training_start_time
+    
     # Salvar informações de early stopping
     history['early_stop'] = {
         'stopped_epoch': stopped_epoch,
         'best_epoch': best_epoch,
         'best_dice': best_dice,
-        'patience_used': patience_counter >= config.patience
+        'patience_used': patience_counter >= config.patience,
+        'total_training_time': total_training_time
     }
     
     # Salvar histórico desta execução
@@ -430,6 +512,15 @@ def save_run_results(history, run_id, config):
         'train_dice': history['train_dice'],
         'val_dice': history['val_dice'],
     }
+    
+    # Adicionar métricas de tempo
+    if history['train_time'] and isinstance(history['train_time'][0], dict):
+        for key in history['train_time'][0].keys():
+            data[f'train_time_{key}'] = [t.get(key, 0) if isinstance(t, dict) else 0 for t in history['train_time']]
+    
+    if history['val_time'] and isinstance(history['val_time'][0], dict):
+        for key in history['val_time'][0].keys():
+            data[f'val_time_{key}'] = [t.get(key, 0) if isinstance(t, dict) else 0 for t in history['val_time']]
     
     # Adicionar métricas detalhadas
     for metric in ['accuracy', 'iou', 'sensitivity', 'specificity']:
@@ -457,7 +548,29 @@ def save_run_results(history, run_id, config):
         'total_epochs': len(history['train_loss']),
         'early_stopped': history['early_stop']['patience_used'],
         'stopped_epoch': history['early_stop']['stopped_epoch'],
+        'total_training_time': float(history['early_stop'].get('total_training_time', 0)),
     }
+    
+    # Adicionar métricas de tempo finais
+    if history['train_time'] and isinstance(history['train_time'][-1], dict):
+        for key, value in history['train_time'][-1].items():
+            final_metrics[f'final_train_{key}'] = float(value) if isinstance(value, (int, float)) else 0
+    
+    if history['val_time'] and isinstance(history['val_time'][-1], dict):
+        for key, value in history['val_time'][-1].items():
+            final_metrics[f'final_val_{key}'] = float(value) if isinstance(value, (int, float)) else 0
+    
+    # Média das métricas de tempo por época
+    train_time_values = [t.get('epoch_total_time', 0) for t in history['train_time'] if isinstance(t, dict)]
+    val_time_values = [t.get('epoch_total_time', 0) for t in history['val_time'] if isinstance(t, dict)]
+    
+    if train_time_values:
+        final_metrics['avg_train_epoch_time'] = float(np.mean(train_time_values))
+        final_metrics['std_train_epoch_time'] = float(np.std(train_time_values))
+    
+    if val_time_values:
+        final_metrics['avg_val_epoch_time'] = float(np.mean(val_time_values))
+        final_metrics['std_val_epoch_time'] = float(np.std(val_time_values))
     
     # Adicionar últimas métricas
     for metric in ['accuracy', 'iou', 'sensitivity', 'specificity']:
@@ -474,6 +587,7 @@ def save_run_results(history, run_id, config):
     
     # Plotar e salvar gráficos
     plot_training_history(history, run_id, config)
+    plot_time_metrics(history, run_id, config)
     
     return df, final_metrics
 
@@ -536,6 +650,92 @@ def plot_training_history(history, run_id, config):
     
     plt.tight_layout()
     plt.savefig(os.path.join(run_dir, 'training_plots.png'), dpi=300)
+    plt.close()
+
+def plot_time_metrics(history, run_id, config):
+    """Plota e salva os gráficos de métricas de tempo"""
+    if not config.measure_time:
+        return
+    
+    run_dir = os.path.join(experiment_dir, f'run_{run_id}')
+    
+    # Extrair métricas de tempo
+    train_epoch_times = []
+    val_epoch_times = []
+    train_batch_times = []
+    val_inference_times = []
+    
+    for train_t, val_t in zip(history['train_time'], history['val_time']):
+        if isinstance(train_t, dict):
+            train_epoch_times.append(train_t.get('epoch_total_time', 0))
+            train_batch_times.append(train_t.get('batch_forward_time_mean', 0))
+        else:
+            train_epoch_times.append(0)
+            train_batch_times.append(0)
+        
+        if isinstance(val_t, dict):
+            val_epoch_times.append(val_t.get('epoch_total_time', 0))
+            val_inference_times.append(val_t.get('inference_time_mean', 0))
+        else:
+            val_epoch_times.append(0)
+            val_inference_times.append(0)
+    
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    fig.suptitle(f'{config.model_name} - Métricas de Tempo - Run {run_id+1}', 
+                 fontsize=16, fontweight='bold')
+    
+    epochs = range(1, len(train_epoch_times) + 1)
+    
+    # Tempo por época
+    axes[0, 0].plot(epochs, train_epoch_times, label='Train', marker='o')
+    axes[0, 0].plot(epochs, val_epoch_times, label='Validation', marker='s')
+    if 'early_stop' in history and history['early_stop']['patience_used']:
+        axes[0, 0].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
+    axes[0, 0].set_xlabel('Epoch')
+    axes[0, 0].set_ylabel('Tempo (s)')
+    axes[0, 0].set_title('Tempo por Época')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True)
+    
+    # Tempo médio por batch/inferência
+    axes[0, 1].plot(epochs, train_batch_times, label='Train (Batch)', marker='o')
+    axes[0, 1].plot(epochs, val_inference_times, label='Validation (Inference)', marker='s')
+    if 'early_stop' in history and history['early_stop']['patience_used']:
+        axes[0, 1].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
+    axes[0, 1].set_xlabel('Epoch')
+    axes[0, 1].set_ylabel('Tempo (s)')
+    axes[0, 1].set_title('Tempo Médio por Batch/Inferência')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True)
+    
+    # Throughput
+    train_throughput = [1/t if t > 0 else 0 for t in train_batch_times]
+    val_throughput = [1/t if t > 0 else 0 for t in val_inference_times]
+    axes[1, 0].plot(epochs, train_throughput, label='Train', marker='o')
+    axes[1, 0].plot(epochs, val_throughput, label='Validation', marker='s')
+    if 'early_stop' in history and history['early_stop']['patience_used']:
+        axes[1, 0].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
+    axes[1, 0].set_xlabel('Epoch')
+    axes[1, 0].set_ylabel('Batches/Inferences por segundo')
+    axes[1, 0].set_title('Throughput')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True)
+    
+    # Tempo acumulado
+    cumulative_train_time = np.cumsum(train_epoch_times)
+    cumulative_val_time = np.cumsum(val_epoch_times)
+    axes[1, 1].plot(epochs, cumulative_train_time, label='Train (Acumulado)', marker='o')
+    axes[1, 1].plot(epochs, cumulative_val_time, label='Validation (Acumulado)', marker='s')
+    if 'early_stop' in history and history['early_stop']['patience_used']:
+        axes[1, 1].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
+    axes[1, 1].set_xlabel('Epoch')
+    axes[1, 1].set_ylabel('Tempo Acumulado (s)')
+    axes[1, 1].set_title('Tempo Acumulado de Execução')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(run_dir, 'time_metrics_plots.png'), dpi=300)
     plt.close()
 
 # ============================================
@@ -629,6 +829,7 @@ def create_summary_report(df_final, df_best, stats, config):
         f.write(f"⏳ PACIÊNCIA (EARLY STOPPING): {config.patience} épocas\n")
         f.write(f"📈 MIN_DELTA: {config.min_delta}\n")
         f.write(f"💻 DISPOSITIVO: {config.device}\n")
+        f.write(f"⏱️ MEDIÇÃO DE TEMPO: {'Ativada' if config.measure_time else 'Desativada'}\n")
         f.write(f"📁 EXPERIMENTO: {config.experiment_name}\n")
         f.write("-"*100 + "\n\n")
         
@@ -640,6 +841,32 @@ def create_summary_report(df_final, df_best, stats, config):
                 metric_name = metric.replace('final_', '').replace('_', ' ').title()
                 f.write(f"  {metric_name}: {values['mean']:.4f} ± {values['std']:.4f} "
                        f"[{values['min']:.4f} - {values['max']:.4f}]\n")
+        
+        # Métricas de tempo
+        f.write("\n" + "="*50 + "\n")
+        f.write("⏱️ MÉTRICAS DE TEMPO (Média ± Desvio Padrão):\n")
+        f.write("-"*50 + "\n")
+        
+        time_metrics = [
+            'total_training_time', 
+            'avg_train_epoch_time', 
+            'avg_val_epoch_time',
+            'final_train_epoch_total_time',
+            'final_val_epoch_total_time',
+            'final_train_batch_forward_time_mean',
+            'final_val_inference_time_mean'
+        ]
+        
+        time_metrics_found = False
+        for metric in time_metrics:
+            if metric in stats:
+                metric_name = metric.replace('_', ' ').title()
+                f.write(f"  {metric_name}: {stats[metric]['mean']:.2f} ± {stats[metric]['std']:.2f} "
+                       f"[{stats[metric]['min']:.2f} - {stats[metric]['max']:.2f}] (s)\n")
+                time_metrics_found = True
+        
+        if not time_metrics_found:
+            f.write("  ⚠️ Nenhuma métrica de tempo disponível\n")
         
         f.write("\n" + "-"*50 + "\n")
         f.write("🏆 MELHORES RESULTADOS POR EXECUÇÃO:\n")
@@ -668,6 +895,14 @@ def create_summary_report(df_final, df_best, stats, config):
             f.write(f"    Accuracy Final: {row['final_val_accuracy']:.4f}\n")
             f.write(f"    Sensitivity Final: {row['final_val_sensitivity']:.4f}\n")
             f.write(f"    Specificity Final: {row['final_val_specificity']:.4f}\n")
+            
+            if 'total_training_time' in row:
+                f.write(f"    ⏱️ Tempo total de treinamento: {row['total_training_time']:.2f}s\n")
+            if 'avg_train_epoch_time' in row:
+                f.write(f"    ⏱️ Tempo médio por época (train): {row['avg_train_epoch_time']:.2f}s\n")
+            if 'avg_val_epoch_time' in row:
+                f.write(f"    ⏱️ Tempo médio por época (val): {row['avg_val_epoch_time']:.2f}s\n")
+            
             if 'early_stopped' in row:
                 f.write(f"    Early Stopping: {'Sim' if row['early_stopped'] else 'Não'}\n")
                 f.write(f"    Épocas treinadas: {int(row['total_epochs'])}\n")
@@ -679,19 +914,28 @@ def create_summary_report(df_final, df_best, stats, config):
     print(f"✅ Relatório consolidado salvo em: {report_path}")
 
 # ============================================
-# FUNÇÃO DE TESTE COM SALVAMENTO
+# FUNÇÃO DE TESTE COM MEDIÇÃO DE TEMPO
 # ============================================
 def test_model(model, test_loader, device, run_id, config):
-    """Testa o modelo e salva os resultados"""
+    """Testa o modelo e salva os resultados com medição de tempo"""
     model.eval()
     all_metrics = []
     predictions = []
     ground_truths = []
     
+    total_start_time = time.time()
+    inference_times = []
+    
     with torch.no_grad():
         for images, masks in tqdm(test_loader, desc=f'Testing Run {run_id+1}'):
+            if config.measure_time:
+                start_time = time.time()
+            
             images = images.to(device)
             outputs = model(images)
+            
+            if config.measure_time:
+                inference_times.append(time.time() - start_time)
             
             metrics = compute_metrics(outputs.cpu().numpy(), masks.numpy())
             all_metrics.append(metrics)
@@ -699,10 +943,22 @@ def test_model(model, test_loader, device, run_id, config):
             predictions.extend(outputs.cpu().numpy())
             ground_truths.extend(masks.numpy())
     
+    total_time = time.time() - total_start_time
+    
     # Calcular médias
     final_metrics = {}
     for k in all_metrics[0].keys():
         final_metrics[k] = np.mean([m[k] for m in all_metrics])
+    
+    # Adicionar métricas de tempo
+    if config.measure_time and inference_times:
+        final_metrics['test_total_time'] = float(total_time)
+        final_metrics['test_inference_time_mean'] = float(np.mean(inference_times))
+        final_metrics['test_inference_time_std'] = float(np.std(inference_times))
+        final_metrics['test_inference_time_min'] = float(np.min(inference_times))
+        final_metrics['test_inference_time_max'] = float(np.max(inference_times))
+        final_metrics['test_inferences_per_second'] = float(len(inference_times) / total_time)
+        final_metrics['test_images_per_second'] = float(len(test_loader.dataset) / total_time)
     
     # Converter para float
     final_metrics = {k: float(v) for k, v in final_metrics.items()}
@@ -719,7 +975,7 @@ def test_model(model, test_loader, device, run_id, config):
         # Salvar métricas finais
         test_metrics_path = os.path.join(run_dir, 'test_metrics.json')
         with open(test_metrics_path, 'w') as f:
-            json.dump(final_metrics, f, indent=4)
+            json.dump(convert_to_serializable(final_metrics), f, indent=4)
     
     return final_metrics
 
@@ -780,7 +1036,10 @@ def test_model_average(config):
         print(f"RESULTADOS DO TESTE - {config.model_name} (Média entre runs)")
         print("="*50)
         for metric, values in test_stats.items():
-            print(f"{metric}: {values['mean']:.4f} ± {values['std']:.4f}")
+            if 'time' in metric.lower():
+                print(f"⏱️  {metric}: {values['mean']:.4f} ± {values['std']:.4f}")
+            else:
+                print(f"{metric}: {values['mean']:.4f} ± {values['std']:.4f}")
         
         return test_df, test_stats
     
@@ -802,6 +1061,7 @@ def main():
     print(f"  Paciência: {config.patience} épocas")
     print(f"  Batch Size: {config.batch_size}")
     print(f"  Learning Rate: {config.learning_rate}")
+    print(f"  Medição de tempo: {'Ativada' if config.measure_time else 'Desativada'}")
     print(f"  Diretório: {experiment_dir}")
     
     # Preparar dados
@@ -825,8 +1085,11 @@ def main():
     # Executar múltiplos treinamentos
     all_histories = []
     all_best_dices = []
+    all_training_times = []
     
     for run_id in range(config.n_runs):
+        run_start_time = time.time()
+        
         print(f"\n{'#'*70}")
         print(f"# EXECUÇÃO {run_id+1}/{config.n_runs} - {config.model_name}")
         print(f"{'#'*70}")
@@ -839,6 +1102,10 @@ def main():
         history, best_dice = train_model(model, train_loader, val_loader, config, run_id)
         all_histories.append(history)
         all_best_dices.append(best_dice)
+        
+        run_total_time = time.time() - run_start_time
+        all_training_times.append(run_total_time)
+        print(f"\n⏱️ Tempo total da execução {run_id+1}: {run_total_time:.2f}s")
         
         # Testar se houver dados de teste
         if os.path.exists(config.test_images_dir) and os.path.exists(config.test_masks_dir):
@@ -871,6 +1138,12 @@ def main():
         print(f"  Run {i+1}: {dice:.4f}")
     print(f"\nMédia dos melhores Dices: {best_dice_array.mean():.4f} ± {best_dice_array.std():.4f}")
     
+    if all_training_times:
+        print(f"\n⏱️ Tempo total por execução:")
+        for i, t in enumerate(all_training_times):
+            print(f"  Run {i+1}: {t:.2f}s")
+        print(f"\n⏱️ Tempo médio por execução: {np.mean(all_training_times):.2f}s ± {np.std(all_training_times):.2f}s")
+    
     # Salvar resultados consolidados
     compute_average_results(config)
     
@@ -883,6 +1156,11 @@ def main():
     print("="*70)
     print(f"\n📁 Resultados salvos em: {experiment_dir}")
     print(f"📁 Relatórios consolidados em: {reports_dir}")
+    
+    if all_training_times:
+        print(f"\n⏱️ RESUMO DE TEMPO:")
+        print(f"  Tempo total médio por execução: {np.mean(all_training_times):.2f}s")
+        print(f"  Tempo total de todas as execuções: {np.sum(all_training_times):.2f}s")
 
 # ============================================
 # FUNÇÃO PARA VISUALIZAR RESULTADOS
@@ -940,7 +1218,7 @@ def visualize_results(config):
         
         plt.tight_layout()
         plt.savefig(os.path.join(reports_dir, f'comparacao_execucoes_{config.model_name}.png'), dpi=300)
-        plt.show()
+        plt.close()
         
         print("\n📊 Estatísticas das execuções:")
         print(df.describe())

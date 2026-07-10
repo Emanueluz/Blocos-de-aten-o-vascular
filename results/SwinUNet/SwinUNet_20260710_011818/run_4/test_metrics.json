@@ -1,0 +1,14 @@
+{
+    "accuracy": 0.9668341438137753,
+    "dice": 0.7645652793654724,
+    "iou": 0.6194754870352644,
+    "sensitivity": 0.7565663348413413,
+    "specificity": 0.9829365409022083,
+    "test_total_time": 12.39367151260376,
+    "test_inference_time_mean": 0.006987290382385254,
+    "test_inference_time_std": 0.001363931719941362,
+    "test_inference_time_min": 0.005353212356567383,
+    "test_inference_time_max": 0.010848760604858398,
+    "test_inferences_per_second": 4.034317026165526,
+    "test_images_per_second": 16.137268104662105
+}
