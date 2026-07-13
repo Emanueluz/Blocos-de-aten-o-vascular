@@ -15,6 +15,7 @@ import pandas as pd
 from datetime import datetime
 import json
 import warnings
+import time
 
 warnings.filterwarnings('ignore')
 
@@ -39,7 +40,7 @@ class Config:
     model_name = 'ViTUNet'
     experiment_name = f'{model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     
-    patience = 10
+    patience = 5
     min_delta = 0.001
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -48,6 +49,9 @@ class Config:
     num_workers = 2
     pin_memory = True if torch.cuda.is_available() else False
     pretrained = True
+    
+    measure_time = True
+    input_channels = 3  # RGB colorido
 
 config = Config()
 
@@ -57,14 +61,26 @@ network_dir = os.path.join(config.results_dir, config.model_name)
 os.makedirs(network_dir, exist_ok=True)
 experiment_dir = os.path.join(network_dir, config.experiment_name)
 os.makedirs(experiment_dir, exist_ok=True)
+
+# Criar diretório para modelos salvos
+models_dir = os.path.join(experiment_dir, 'saved_models')
+os.makedirs(models_dir, exist_ok=True)
+
 reports_dir = os.path.join(network_dir, f'RELATORIO_DAS_EXECUCOES')
 os.makedirs(reports_dir, exist_ok=True)
+
+# Criar diretório para resultados de teste
+test_results_dir = os.path.join(experiment_dir, 'test_results')
+os.makedirs(test_results_dir, exist_ok=True)
 
 print(f"✅ Diretórios criados:")
 print(f"   Network: {network_dir}")
 print(f"   Experimento: {experiment_dir}")
+print(f"   Modelos salvos: {models_dir}")
 print(f"   Relatórios: {reports_dir}")
+print(f"   Teste: {test_results_dir}")
 print(f"   Device: {config.device}")
+print(f"   Canais de entrada: {config.input_channels} (RGB)")
 print()
 
 # ============================================
@@ -85,6 +101,8 @@ def convert_to_serializable(obj):
         return [convert_to_serializable(v) for v in obj]
     elif isinstance(obj, tuple):
         return tuple(convert_to_serializable(v) for v in obj)
+    elif isinstance(obj, (datetime, pd.Timestamp)):
+        return obj.isoformat()
     else:
         return obj
 
@@ -103,11 +121,8 @@ class ViTUNet(nn.Module):
         self.transformer = self.vit.encoder
         self.cls_token = self.vit.class_token
         
-        # POS_EMBED MAIS SEGURO - CRIAR DO ZERO
-        # Isso evita problemas de compatibilidade entre versões
         self.pos_embed = nn.Parameter(torch.randn(1, 197, 768) * 0.02)
         
-        # Decoder...
         self.decoder = nn.ModuleDict({
             'up1': nn.ConvTranspose2d(768, 512, kernel_size=2, stride=2),
             'conv1': nn.Sequential(
@@ -145,29 +160,24 @@ class ViTUNet(nn.Module):
     def forward(self, x):
         batch_size = x.shape[0]
         
-        # Patch embedding
-        x = self.patch_embed(x)  # (b, 768, 14, 14)
+        # Ajustar tamanho se necessário
+        if x.shape[2] != 224 or x.shape[3] != 224:
+            x = nn.functional.interpolate(x, size=(224, 224), mode='bilinear', align_corners=False)
         
-        # Flatten
-        x = x.flatten(2).transpose(1, 2)  # (b, 196, 768)
+        x = self.patch_embed(x)
+        x = x.flatten(2).transpose(1, 2)
         
-        # CLS token
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
-        x = torch.cat([cls_tokens, x], dim=1)  # (b, 197, 768)
+        x = torch.cat([cls_tokens, x], dim=1)
+        x = x + self.pos_embed
         
-        # Pos embedding (criado do zero)
-        x = x + self.pos_embed  # (b, 197, 768) - SEM ERRO!
-        
-        # Transformer
         x = self.transformer(x)
         if isinstance(x, tuple):
             x = x[0]
         
-        # Remove CLS e reshape
-        x = x[:, 1:, :]  # (b, 196, 768)
-        x = x.transpose(1, 2).view(batch_size, 768, 14, 14)  # (b, 768, 14, 14)
+        x = x[:, 1:, :]
+        x = x.transpose(1, 2).view(batch_size, 768, 14, 14)
         
-        # Decoder
         d1 = self.decoder['up1'](x)
         d1 = self.decoder['conv1'](d1)
         d2 = self.decoder['up2'](d1)
@@ -177,14 +187,17 @@ class ViTUNet(nn.Module):
         d4 = self.decoder['up4'](d3)
         d4 = self.decoder['conv4'](d4)
         
-        # Final
+        # Upsample final para 224x224
+        if d4.shape[2] != 224 or d4.shape[3] != 224:
+            d4 = nn.functional.interpolate(d4, size=(224, 224), mode='bilinear', align_corners=False)
+        
         out = self.final_conv(d4)
         return out
+
 # ============================================
 # FUNÇÃO PARA INSPECIONAR O ViT
 # ============================================
 def inspect_vit():
-    """Função para inspecionar a estrutura do ViT"""
     print("="*60)
     print("INSPECIONANDO ESTRUTURA DO ViT")
     print("="*60)
@@ -206,14 +219,12 @@ def inspect_vit():
     print(f"  encoder: {type(vit.encoder)}")
     print(f"  heads: {type(vit.heads)}")
     
-    # Verificar se tem pos_embedding ou pos_embed
     if hasattr(vit, 'pos_embedding'):
         print(f"  pos_embedding: {vit.pos_embedding.shape}")
     elif hasattr(vit, 'pos_embed'):
         print(f"  pos_embed: {vit.pos_embed.shape}")
     else:
         print("  ⚠️ Nenhum atributo 'pos_embedding' ou 'pos_embed' encontrado!")
-        # Procurar em todos os atributos
         print("  🔍 Procurando em todos os atributos...")
         for attr in dir(vit):
             if 'pos' in attr.lower():
@@ -227,15 +238,8 @@ def inspect_vit():
     print("="*60)
     return vit
 
-
-# DATASET, LOSS, TREINAMENTO, RELATÓRIOS, MAIN (idênticos ao anterior)
 # ============================================
-# ... (o restante do código permanece igual)
-# Inclua aqui todas as outras funções (Dataset, loss, métricas, treinamento, salvamento, etc.)
-# Para manter a resposta mais curta, o restante do código é o mesmo da última versão.
-# Basta copiar as funções de Dataset, loss, treinamento, etc. do script anterior.
-# ============================================
-# DATASET
+# DATASET (RGB)
 # ============================================
 class FundusSegmentationDataset(Dataset):
     def __init__(self, images_dir, masks_dir, img_size=224):
@@ -265,9 +269,18 @@ class FundusSegmentationDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path, mask_path = self.valid_pairs[idx]
+        
+        # Carregar imagem colorida (RGB)
         image = cv2.imread(img_path)
+        if image is None:
+            raise ValueError(f"Erro ao carregar imagem: {img_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Carregar máscara em tons de cinza
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            raise ValueError(f"Erro ao carregar máscara: {mask_path}")
+        
         image = cv2.resize(image, (self.img_size, self.img_size))
         mask = cv2.resize(mask, (self.img_size, self.img_size))
         image = image.astype(np.float32) / 255.0
@@ -322,51 +335,110 @@ def compute_metrics(preds, targets, threshold=0.5):
     }
 
 # ============================================
-# FUNÇÕES DE TREINAMENTO
+# FUNÇÕES DE TREINAMENTO COM TEMPO
 # ============================================
-def train_epoch(model, loader, criterion, optimizer, device):
+def train_epoch(model, loader, criterion, optimizer, device, measure_time=True):
     model.train()
     running_loss = 0.0
     metrics = {'accuracy': 0, 'dice': 0, 'iou': 0, 'sensitivity': 0, 'specificity': 0}
+    
+    epoch_start_time = time.time()
+    batch_times = []
+    data_load_times = []
+    
     pbar = tqdm(loader, desc='Training')
-    for images, masks in pbar:
+    for batch_idx, (images, masks) in enumerate(pbar):
+        if measure_time:
+            data_load_start = time.time()
+        
         images, masks = images.to(device), masks.to(device)
+        
+        if measure_time:
+            data_load_times.append(time.time() - data_load_start)
+            forward_start = time.time()
+        
         optimizer.zero_grad()
         outputs = model(images)
         loss = criterion(outputs, masks)
         loss.backward()
         optimizer.step()
+        
+        if measure_time:
+            batch_times.append(time.time() - forward_start)
+        
         running_loss += loss.item()
         batch_metrics = compute_metrics(outputs.detach(), masks.detach())
         for k in metrics:
             metrics[k] += batch_metrics[k]
         pbar.set_postfix({'loss': f'{loss.item():.4f}'})
+    
     num_batches = len(loader)
     avg_loss = running_loss / num_batches
     for k in metrics:
         metrics[k] /= num_batches
-    return avg_loss, metrics
+    
+    time_metrics = {}
+    if measure_time and batch_times:
+        time_metrics = {
+            'epoch_total_time': time.time() - epoch_start_time,
+            'batch_forward_time_mean': np.mean(batch_times),
+            'batch_forward_time_std': np.std(batch_times),
+            'batch_forward_time_min': np.min(batch_times),
+            'batch_forward_time_max': np.max(batch_times),
+            'data_load_time_mean': np.mean(data_load_times) if data_load_times else 0,
+            'data_load_time_total': np.sum(data_load_times) if data_load_times else 0,
+            'batches_per_second': num_batches / (time.time() - epoch_start_time)
+        }
+    
+    return avg_loss, metrics, time_metrics
 
-def validate_epoch(model, loader, criterion, device):
+def validate_epoch(model, loader, criterion, device, measure_time=True):
     model.eval()
     running_loss = 0.0
     metrics = {'accuracy': 0, 'dice': 0, 'iou': 0, 'sensitivity': 0, 'specificity': 0}
+    
+    epoch_start_time = time.time()
+    inference_times = []
+    
     with torch.no_grad():
         pbar = tqdm(loader, desc='Validation')
         for images, masks in pbar:
+            if measure_time:
+                start_time = time.time()
+            
             images, masks = images.to(device), masks.to(device)
             outputs = model(images)
             loss = criterion(outputs, masks)
+            
+            if measure_time:
+                inference_times.append(time.time() - start_time)
+            
             running_loss += loss.item()
             batch_metrics = compute_metrics(outputs, masks)
             for k in metrics:
                 metrics[k] += batch_metrics[k]
+    
     num_batches = len(loader)
     avg_loss = running_loss / num_batches
     for k in metrics:
         metrics[k] /= num_batches
-    return avg_loss, metrics
+    
+    time_metrics = {}
+    if measure_time and inference_times:
+        time_metrics = {
+            'epoch_total_time': time.time() - epoch_start_time,
+            'inference_time_mean': np.mean(inference_times),
+            'inference_time_std': np.std(inference_times),
+            'inference_time_min': np.min(inference_times),
+            'inference_time_max': np.max(inference_times),
+            'inferences_per_second': num_batches / (time.time() - epoch_start_time)
+        }
+    
+    return avg_loss, metrics, time_metrics
 
+# ============================================
+# FUNÇÃO DE TREINAMENTO (COM SALVAMENTO DO MELHOR MODELO)
+# ============================================
 def train_model(model, train_loader, val_loader, config, run_id=0):
     criterion = DiceBCELoss()
     optimizer = optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=0.01)
@@ -377,21 +449,34 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
     patience_counter = 0
     stopped_epoch = config.epochs
 
+    # Guardar o melhor estado do modelo
+    best_model_state = None
+
     history = {
         'train_loss': [], 'val_loss': [],
         'train_dice': [], 'val_dice': [],
-        'train_metrics': [], 'val_metrics': []
+        'train_metrics': [], 'val_metrics': [],
+        'train_time': [], 'val_time': []
     }
+    
+    training_start_time = time.time()
 
     print(f"\n🚀 Run {run_id+1}/{config.n_runs} - {config.model_name}")
     print(f"Device: {config.device}, Params: {sum(p.numel() for p in model.parameters()):,}")
-    print(f"Paciência: {config.patience}, Épocas: {config.epochs}\n")
+    print(f"Canais de entrada: {config.input_channels} (RGB)")
+    print(f"Paciência: {config.patience}, Épocas: {config.epochs}")
+    print(f"⏱️ Medição de tempo: {'Ativada' if config.measure_time else 'Desativada'}")
+    print(f"💾 Modelo será salvo no final do treinamento (melhor Dice)")
 
     for epoch in range(config.epochs):
         print(f"\n{'='*50}\nRun {run_id+1} - Época {epoch+1}/{config.epochs} | LR: {optimizer.param_groups[0]['lr']:.6f}")
 
-        train_loss, train_metrics = train_epoch(model, train_loader, criterion, optimizer, config.device)
-        val_loss, val_metrics = validate_epoch(model, val_loader, criterion, config.device)
+        train_loss, train_metrics, train_time = train_epoch(
+            model, train_loader, criterion, optimizer, config.device, config.measure_time
+        )
+        val_loss, val_metrics, val_time = validate_epoch(
+            model, val_loader, criterion, config.device, config.measure_time
+        )
         scheduler.step()
 
         history['train_loss'].append(train_loss)
@@ -400,16 +485,26 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
         history['val_dice'].append(val_metrics['dice'])
         history['train_metrics'].append(train_metrics)
         history['val_metrics'].append(val_metrics)
+        history['train_time'].append(train_time)
+        history['val_time'].append(val_time)
 
         print(f"📊 Treino - Loss: {train_loss:.4f} | Dice: {train_metrics['dice']:.4f} | IoU: {train_metrics['iou']:.4f}")
         print(f"📊 Validação - Loss: {val_loss:.4f} | Dice: {val_metrics['dice']:.4f} | IoU: {val_metrics['iou']:.4f}")
+        
+        if config.measure_time:
+            print(f"⏱️  Treino: {train_time.get('epoch_total_time', 0):.2f}s | "
+                  f"Batch: {train_time.get('batch_forward_time_mean', 0):.3f}s")
+            print(f"⏱️  Validação: {val_time.get('epoch_total_time', 0):.2f}s | "
+                  f"Inferência: {val_time.get('inference_time_mean', 0):.3f}s")
 
+        # Atualizar melhor modelo
         if val_metrics['dice'] > best_dice + config.min_delta:
             best_dice = val_metrics['dice']
             best_epoch = epoch
             patience_counter = 0
-            torch.save(model.state_dict(), f"{config.best_model_path}_run{run_id}")
-            print(f"✅ Melhor modelo salvo! Dice: {best_dice:.4f} (época {epoch+1})")
+            # Salvar o estado do melhor modelo
+            best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            print(f"✅ Novo melhor Dice: {best_dice:.4f} (época {epoch+1})")
         else:
             patience_counter += 1
             print(f"⏳ Paciência: {patience_counter}/{config.patience} (melhor Dice: {best_dice:.4f} na época {best_epoch+1})")
@@ -419,268 +514,405 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
             print(f"\n🛑 Early stopping na época {stopped_epoch}")
             break
 
+    total_training_time = time.time() - training_start_time
+
+    # Salvar o melhor modelo no final do treinamento
+    if best_model_state is not None:
+        model_path = os.path.join(models_dir, f'best_model_run_{run_id}.pth')
+        torch.save(best_model_state, model_path)
+        print(f"\n✅ Modelo da run {run_id} salvo em: {model_path}")
+        print(f"   Melhor Dice: {best_dice:.4f} (época {best_epoch+1})")
+    else:
+        # Se nenhum modelo melhor foi encontrado, salvar o modelo atual
+        model_path = os.path.join(models_dir, f'final_model_run_{run_id}.pth')
+        torch.save(model.state_dict(), model_path)
+        print(f"\n⚠️ Nenhum modelo melhor encontrado, salvando modelo final em: {model_path}")
+
     history['early_stop'] = {
         'stopped_epoch': stopped_epoch,
         'best_epoch': best_epoch,
         'best_dice': best_dice,
-        'patience_used': patience_counter >= config.patience
+        'patience_used': patience_counter >= config.patience,
+        'total_training_time': total_training_time,
+        'model_saved': True,
+        'model_path': model_path
     }
 
     if config.save_results:
-        save_run_results(history, run_id, config)
+        save_run_results_csv(history, run_id, config)
 
     return history, best_dice
 
 # ============================================
-# SALVAR RESULTADOS
+# FUNÇÃO PARA SALVAR RESULTADOS EM CSV
 # ============================================
-def save_run_results(history, run_id, config):
+def save_run_results_csv(history, run_id, config):
+    """Salva os resultados de uma execução em CSV (métricas e tempo separados)"""
     run_dir = os.path.join(experiment_dir, f'run_{run_id}')
     os.makedirs(run_dir, exist_ok=True)
 
-    data = {
-        'epoch': list(range(1, len(history['train_loss']) + 1)),
+    epochs = list(range(1, len(history['train_loss']) + 1))
+    
+    # ========== CSV 1: MÉTRICAS ==========
+    metrics_data = {
+        'epoch': epochs,
         'train_loss': history['train_loss'],
         'val_loss': history['val_loss'],
         'train_dice': history['train_dice'],
         'val_dice': history['val_dice'],
     }
+    
     for metric in ['accuracy', 'iou', 'sensitivity', 'specificity']:
-        data[f'train_{metric}'] = [m[metric] for m in history['train_metrics']]
-        data[f'val_{metric}'] = [m[metric] for m in history['val_metrics']]
-
-    pd.DataFrame(data).to_csv(os.path.join(run_dir, 'training_results.csv'), index=False)
-
-    final_metrics = {
-        'run_id': int(run_id),
+        metrics_data[f'train_{metric}'] = [m[metric] for m in history['train_metrics']]
+        metrics_data[f'val_{metric}'] = [m[metric] for m in history['val_metrics']]
+    
+    if history['train_time'] and isinstance(history['train_time'][0], dict):
+        for key in history['train_time'][0].keys():
+            metrics_data[f'train_time_{key}'] = [t.get(key, 0) if isinstance(t, dict) else 0 for t in history['train_time']]
+    
+    if history['val_time'] and isinstance(history['val_time'][0], dict):
+        for key in history['val_time'][0].keys():
+            metrics_data[f'val_time_{key}'] = [t.get(key, 0) if isinstance(t, dict) else 0 for t in history['val_time']]
+    
+    metrics_data['early_stop_epoch'] = [history['early_stop']['stopped_epoch']] * len(epochs)
+    metrics_data['best_epoch'] = [history['early_stop']['best_epoch'] + 1] * len(epochs)
+    metrics_data['best_dice'] = [history['early_stop']['best_dice']] * len(epochs)
+    metrics_data['model_saved'] = [history['early_stop']['model_saved']] * len(epochs)
+    
+    df_metrics = pd.DataFrame(metrics_data)
+    metrics_csv_path = os.path.join(run_dir, 'metrics_results.csv')
+    df_metrics.to_csv(metrics_csv_path, index=False)
+    print(f"✅ Métricas salvas em: {metrics_csv_path}")
+    
+    # ========== CSV 2: TEMPO ==========
+    time_data = {
+        'epoch': epochs,
+    }
+    
+    if history['train_time'] and isinstance(history['train_time'][0], dict):
+        for key in history['train_time'][0].keys():
+            time_data[f'train_{key}'] = [t.get(key, 0) if isinstance(t, dict) else 0 for t in history['train_time']]
+    
+    if history['val_time'] and isinstance(history['val_time'][0], dict):
+        for key in history['val_time'][0].keys():
+            time_data[f'val_{key}'] = [t.get(key, 0) if isinstance(t, dict) else 0 for t in history['val_time']]
+    
+    time_data['total_training_time'] = [history['early_stop']['total_training_time']] * len(epochs)
+    
+    df_time = pd.DataFrame(time_data)
+    time_csv_path = os.path.join(run_dir, 'time_results.csv')
+    df_time.to_csv(time_csv_path, index=False)
+    print(f"✅ Tempo salvo em: {time_csv_path}")
+    
+    # ========== CSV 3: RESUMO DA EXECUÇÃO ==========
+    summary_data = {
+        'run_id': run_id,
         'model_name': config.model_name,
         'img_size': config.img_size,
-        'best_val_dice': float(max(history['val_dice'])),
-        'final_val_dice': float(history['val_dice'][-1]),
-        'final_train_dice': float(history['train_dice'][-1]),
-        'best_val_loss': float(min(history['val_loss'])),
-        'final_val_loss': float(history['val_loss'][-1]),
-        'final_train_loss': float(history['train_loss'][-1]),
-        'best_epoch': int(np.argmax(history['val_dice']) + 1),
+        'input_channels': config.input_channels,
+        'best_val_dice': history['early_stop']['best_dice'],
+        'best_epoch': history['early_stop']['best_epoch'] + 1,
         'total_epochs': len(history['train_loss']),
         'early_stopped': history['early_stop']['patience_used'],
         'stopped_epoch': history['early_stop']['stopped_epoch'],
+        'total_training_time': history['early_stop']['total_training_time'],
+        'final_val_dice': history['val_dice'][-1] if history['val_dice'] else 0,
+        'final_val_loss': history['val_loss'][-1] if history['val_loss'] else 0,
+        'model_saved': history['early_stop']['model_saved'],
+        'model_path': history['early_stop']['model_path']
     }
-    for metric in ['accuracy', 'iou', 'sensitivity', 'specificity']:
-        final_metrics[f'final_val_{metric}'] = float(history['val_metrics'][-1][metric])
-        final_metrics[f'final_train_{metric}'] = float(history['train_metrics'][-1][metric])
-
-    with open(os.path.join(run_dir, 'final_metrics.json'), 'w') as f:
-        json.dump(convert_to_serializable(final_metrics), f, indent=4)
-
-    plot_training_history(history, run_id, config)
-
-def plot_training_history(history, run_id, config):
-    run_dir = os.path.join(experiment_dir, f'run_{run_id}')
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-    fig.suptitle(f'{config.model_name} - Run {run_id+1}', fontsize=16, fontweight='bold')
-
-    axes[0,0].plot(history['train_loss'], label='Train Loss', marker='o')
-    axes[0,0].plot(history['val_loss'], label='Val Loss', marker='s')
-    if history['early_stop']['patience_used']:
-        axes[0,0].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
-    axes[0,0].set_xlabel('Epoch'); axes[0,0].set_ylabel('Loss'); axes[0,0].legend(); axes[0,0].grid()
-
-    axes[0,1].plot(history['train_dice'], label='Train Dice', marker='o')
-    axes[0,1].plot(history['val_dice'], label='Val Dice', marker='s')
-    if history['early_stop']['patience_used']:
-        axes[0,1].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
-    axes[0,1].set_xlabel('Epoch'); axes[0,1].set_ylabel('Dice'); axes[0,1].legend(); axes[0,1].grid()
-
-    train_iou = [m['iou'] for m in history['train_metrics']]
-    val_iou = [m['iou'] for m in history['val_metrics']]
-    axes[1,0].plot(train_iou, label='Train IoU', marker='o')
-    axes[1,0].plot(val_iou, label='Val IoU', marker='s')
-    if history['early_stop']['patience_used']:
-        axes[1,0].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
-    axes[1,0].set_xlabel('Epoch'); axes[1,0].set_ylabel('IoU'); axes[1,0].legend(); axes[1,0].grid()
-
-    train_acc = [m['accuracy'] for m in history['train_metrics']]
-    val_acc = [m['accuracy'] for m in history['val_metrics']]
-    axes[1,1].plot(train_acc, label='Train Accuracy', marker='o')
-    axes[1,1].plot(val_acc, label='Val Accuracy', marker='s')
-    if history['early_stop']['patience_used']:
-        axes[1,1].axvline(x=history['early_stop']['stopped_epoch']-1, color='r', linestyle='--', label='Early Stop')
-    axes[1,1].set_xlabel('Epoch'); axes[1,1].set_ylabel('Accuracy'); axes[1,1].legend(); axes[1,1].grid()
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(run_dir, 'training_plots.png'), dpi=300)
-    plt.close()
+    
+    if history['val_metrics']:
+        for metric in ['accuracy', 'iou', 'sensitivity', 'specificity']:
+            summary_data[f'final_val_{metric}'] = history['val_metrics'][-1][metric]
+    
+    df_summary = pd.DataFrame([summary_data])
+    summary_csv_path = os.path.join(run_dir, 'run_summary.csv')
+    df_summary.to_csv(summary_csv_path, index=False)
+    print(f"✅ Resumo da execução salvo em: {summary_csv_path}")
+    
+    return df_metrics, df_time, df_summary
 
 # ============================================
-# RELATÓRIOS CONSOLIDADOS
+# FUNÇÃO PARA CRIAR RELATÓRIO CONSOLIDADO FINAL
 # ============================================
-def compute_average_results(config):
-    all_final = []
-    all_best = []
-    for run_id in range(config.n_runs):
-        run_dir = os.path.join(experiment_dir, f'run_{run_id}')
-        json_path = os.path.join(run_dir, 'final_metrics.json')
-        if os.path.exists(json_path):
-            with open(json_path, 'r') as f:
-                metrics = json.load(f)
-                all_final.append(metrics)
-                csv_path = os.path.join(run_dir, 'training_results.csv')
-                if os.path.exists(csv_path):
-                    df = pd.read_csv(csv_path)
-                    best_idx = df['val_dice'].idxmax()
-                    all_best.append({
-                        'run_id': int(run_id),
-                        'best_epoch': int(df.loc[best_idx, 'epoch']),
-                        'best_val_dice': float(df.loc[best_idx, 'val_dice']),
-                        'best_val_loss': float(df.loc[best_idx, 'val_loss']),
-                        'best_val_iou': float(df.loc[best_idx, 'val_iou']),
-                        'best_val_accuracy': float(df.loc[best_idx, 'val_accuracy']),
-                        'best_train_dice': float(df.loc[best_idx, 'train_dice']),
-                    })
-
-    if not all_final:
-        print("⚠️ Nenhum resultado para médias!")
-        return None
-
-    df_final = pd.DataFrame(all_final)
-    df_best = pd.DataFrame(all_best)
-
-    stats = {}
-    for col in df_final.columns:
-        if col not in ['run_id', 'model_name'] and pd.api.types.is_numeric_dtype(df_final[col]):
-            stats[col] = {
-                'mean': float(df_final[col].mean()),
-                'std': float(df_final[col].std()),
-                'min': float(df_final[col].min()),
-                'max': float(df_final[col].max()),
-                'median': float(df_final[col].median())
+def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs):
+    """Cria um relatório consolidado final com todas as execuções"""
+    
+    # ========== RELATÓRIO CONSOLIDADO DE MÉTRICAS ==========
+    consolidated_metrics = pd.DataFrame()
+    for run_id, df in enumerate(all_metrics_dfs):
+        df_copy = df.copy()
+        df_copy.insert(0, 'run_id', run_id)
+        consolidated_metrics = pd.concat([consolidated_metrics, df_copy], ignore_index=True)
+    
+    metrics_consolidated_path = os.path.join(reports_dir, f'CONSOLIDADO_METRICAS_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    consolidated_metrics.to_csv(metrics_consolidated_path, index=False)
+    print(f"✅ Relatório consolidado de métricas salvo em: {metrics_consolidated_path}")
+    
+    # ========== RELATÓRIO CONSOLIDADO DE TEMPO ==========
+    consolidated_time = pd.DataFrame()
+    for run_id, df in enumerate(all_time_dfs):
+        df_copy = df.copy()
+        df_copy.insert(0, 'run_id', run_id)
+        consolidated_time = pd.concat([consolidated_time, df_copy], ignore_index=True)
+    
+    time_consolidated_path = os.path.join(reports_dir, f'CONSOLIDADO_TEMPO_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    consolidated_time.to_csv(time_consolidated_path, index=False)
+    print(f"✅ Relatório consolidado de tempo salvo em: {time_consolidated_path}")
+    
+    # ========== RELATÓRIO DE RESUMO DAS EXECUÇÕES ==========
+    summary_df = pd.DataFrame(all_run_summaries)
+    summary_consolidated_path = os.path.join(reports_dir, f'RESUMO_EXECUCOES_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    summary_df.to_csv(summary_consolidated_path, index=False)
+    print(f"✅ Resumo consolidado das execuções salvo em: {summary_consolidated_path}")
+    
+    # ========== ESTATÍSTICAS DESCRITIVAS ==========
+    final_metrics_cols = ['final_val_dice', 'final_val_loss', 'final_val_accuracy', 
+                          'final_val_iou', 'final_val_sensitivity', 'final_val_specificity']
+    
+    stats_data = {}
+    for col in final_metrics_cols:
+        if col in summary_df.columns:
+            stats_data[col] = {
+                'mean': summary_df[col].mean(),
+                'std': summary_df[col].std(),
+                'min': summary_df[col].min(),
+                'max': summary_df[col].max(),
+                'median': summary_df[col].median()
             }
-
-    df_final.to_csv(os.path.join(experiment_dir, 'summary_results.csv'), index=False)
-    df_best.to_csv(os.path.join(experiment_dir, 'best_epochs_results.csv'), index=False)
-    with open(os.path.join(experiment_dir, 'statistics.json'), 'w') as f:
-        json.dump(convert_to_serializable(stats), f, indent=4)
-
-    create_summary_report(df_final, df_best, stats, config)
-    return df_final, df_best, stats
-
-def create_summary_report(df_final, df_best, stats, config):
-    report_path = os.path.join(reports_dir, f'RELATORIO_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
-    with open(report_path, 'w') as f:
-        f.write("="*100 + "\n")
-        f.write(f"{' ' * 30}RELATÓRIO DE EXECUÇÕES\n")
-        f.write("="*100 + "\n\n")
-        f.write(f"📌 MODELO: {config.model_name}\n")
-        f.write(f"📅 DATA: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"📐 TAMANHO DA IMAGEM: {config.img_size}x{config.img_size}\n")
-        f.write(f"📊 EXECUÇÕES: {config.n_runs}\n")
-        f.write(f"🔄 ÉPOCAS MÁXIMAS: {config.epochs}\n")
-        f.write(f"⏳ PACIÊNCIA: {config.patience}\n")
-        f.write(f"💻 DISPOSITIVO: {config.device}\n")
-        f.write("-"*100 + "\n\n")
-
-        f.write("📊 MÉTRICAS FINAIS (Média ± Desvio Padrão):\n")
-        f.write("-"*50 + "\n")
-        for metric, values in stats.items():
-            if metric.startswith('final_val_') or metric.startswith('final_train_'):
-                name = metric.replace('final_', '').replace('_', ' ').title()
-                f.write(f"  {name}: {values['mean']:.4f} ± {values['std']:.4f} "
-                        f"[{values['min']:.4f} - {values['max']:.4f}]\n")
-
-        f.write("\n🏆 MELHORES POR EXECUÇÃO:\n")
-        f.write("-"*50 + "\n")
-        for _, row in df_best.iterrows():
-            f.write(f"  Run {int(row['run_id'])}: Época {int(row['best_epoch'])} - "
-                    f"Dice: {row['best_val_dice']:.4f} - IoU: {row['best_val_iou']:.4f}\n")
-
-        f.write("\n📈 MÉDIAS DOS MELHORES:\n")
-        f.write("-"*50 + "\n")
-        for col in df_best.columns:
-            if col != 'run_id' and pd.api.types.is_numeric_dtype(df_best[col]):
-                name = col.replace('best_', '').replace('_', ' ').title()
-                f.write(f"  {name}: {df_best[col].mean():.4f} ± {df_best[col].std():.4f}\n")
-
-        f.write("\n📋 DETALHES POR EXECUÇÃO:\n")
-        f.write("-"*50 + "\n")
-        for _, row in df_final.iterrows():
-            f.write(f"\n  Run {int(row['run_id'])}:\n")
-            f.write(f"    Melhor Dice: {row['best_val_dice']:.4f} (época {int(row['best_epoch'])})\n")
-            f.write(f"    Dice Final: {row['final_val_dice']:.4f}\n")
-            f.write(f"    IoU Final: {row['final_val_iou']:.4f}\n")
-            f.write(f"    Accuracy Final: {row['final_val_accuracy']:.4f}\n")
-            f.write(f"    Sensitivity Final: {row['final_val_sensitivity']:.4f}\n")
-            f.write(f"    Specificity Final: {row['final_val_specificity']:.4f}\n")
-            if 'early_stopped' in row:
-                f.write(f"    Early Stopping: {'Sim' if row['early_stopped'] else 'Não'}\n")
-                f.write(f"    Épocas treinadas: {int(row['total_epochs'])}\n")
-
-        f.write("\n" + "="*100 + "\n")
-        f.write("FIM DO RELATÓRIO\n")
-        f.write("="*100 + "\n")
-    print(f"✅ Relatório consolidado: {report_path}")
+    
+    time_cols = ['total_training_time']
+    for col in time_cols:
+        if col in summary_df.columns:
+            stats_data[col] = {
+                'mean': summary_df[col].mean(),
+                'std': summary_df[col].std(),
+                'min': summary_df[col].min(),
+                'max': summary_df[col].max(),
+                'median': summary_df[col].median()
+            }
+    
+    stats_data['best_val_dice'] = {
+        'mean': summary_df['best_val_dice'].mean(),
+        'std': summary_df['best_val_dice'].std(),
+        'min': summary_df['best_val_dice'].min(),
+        'max': summary_df['best_val_dice'].max(),
+        'median': summary_df['best_val_dice'].median()
+    }
+    
+    stats_df = pd.DataFrame(stats_data).T
+    stats_path = os.path.join(reports_dir, f'ESTATISTICAS_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    stats_df.to_csv(stats_path)
+    print(f"✅ Estatísticas descritivas salvas em: {stats_path}")
+    
+    # Exibir resumo
+    print("\n" + "="*70)
+    print("📊 RESUMO FINAL DAS EXECUÇÕES")
+    print("="*70)
+    print(f"\nModelo: {config.model_name}")
+    print(f"Número de execuções: {config.n_runs}")
+    print(f"Tamanho da imagem: {config.img_size}x{config.img_size}")
+    print(f"Canais de entrada: {config.input_channels} (RGB)")
+    print(f"Dispositivo: {config.device}")
+    print("\n📈 MÉTRICAS (Média ± Desvio Padrão):")
+    for col in ['best_val_dice', 'final_val_dice', 'final_val_iou', 'final_val_accuracy']:
+        if col in stats_df.index:
+            print(f"  {col}: {stats_df.loc[col, 'mean']:.4f} ± {stats_df.loc[col, 'std']:.4f}")
+    
+    print("\n⏱️ TEMPO (Média ± Desvio Padrão):")
+    if 'total_training_time' in stats_df.index:
+        print(f"  Tempo total de treinamento: {stats_df.loc['total_training_time', 'mean']:.2f}s ± {stats_df.loc['total_training_time', 'std']:.2f}s")
+    
+    print("\n📁 Arquivos gerados:")
+    print(f"  - {metrics_consolidated_path}")
+    print(f"  - {time_consolidated_path}")
+    print(f"  - {summary_consolidated_path}")
+    print(f"  - {stats_path}")
+    
+    return consolidated_metrics, consolidated_time, summary_df, stats_df
 
 # ============================================
-# TESTE
+# FUNÇÃO DE TESTE DETALHADA
 # ============================================
-def test_model(model, test_loader, device, run_id, config):
+def test_model_detailed(model, test_loader, device, run_id, config):
+    """
+    Testa o modelo e retorna métricas detalhadas incluindo:
+    - Métricas por imagem (tempo de predição, dice, iou, etc)
+    - Métricas agregadas (média, desvio padrão)
+    - Tempo total de teste
+    """
     model.eval()
+    
+    per_image_metrics = []
+    inference_times = []
     all_metrics = []
+    
+    total_start_time = time.time()
+    
     with torch.no_grad():
-        for images, masks in tqdm(test_loader, desc=f'Test Run {run_id+1}'):
+        for idx, (images, masks) in enumerate(tqdm(test_loader, desc=f'Testing Run {run_id+1}')):
             images = images.to(device)
+            
+            if config.measure_time:
+                start_time = time.time()
+            
             outputs = model(images)
-            metrics = compute_metrics(outputs.cpu().numpy(), masks.cpu().numpy())
-            all_metrics.append(metrics)
-
-    final_metrics = {k: float(np.mean([m[k] for m in all_metrics])) for k in all_metrics[0].keys()}
+            
+            if config.measure_time:
+                inference_time = time.time() - start_time
+                inference_times.append(inference_time)
+            
+            for i in range(images.size(0)):
+                pred = outputs[i].cpu().numpy()
+                mask = masks[i].cpu().numpy()
+                
+                metrics = compute_metrics(pred, mask)
+                
+                if config.measure_time:
+                    per_image_inference_time = inference_time / images.size(0) if config.measure_time else 0
+                    metrics['inference_time_per_image'] = float(per_image_inference_time)
+                else:
+                    metrics['inference_time_per_image'] = 0.0
+                
+                metrics['image_index'] = idx * test_loader.batch_size + i
+                
+                per_image_metrics.append(metrics)
+                all_metrics.append(metrics)
+    
+    total_time = time.time() - total_start_time
+    
+    df_per_image = pd.DataFrame(per_image_metrics)
+    
+    aggregated_metrics = {}
+    for k in df_per_image.columns:
+        if k != 'image_index' and pd.api.types.is_numeric_dtype(df_per_image[k]):
+            aggregated_metrics[f'{k}_mean'] = float(df_per_image[k].mean())
+            aggregated_metrics[f'{k}_std'] = float(df_per_image[k].std())
+            aggregated_metrics[f'{k}_min'] = float(df_per_image[k].min())
+            aggregated_metrics[f'{k}_max'] = float(df_per_image[k].max())
+            aggregated_metrics[f'{k}_median'] = float(df_per_image[k].median())
+    
+    if config.measure_time and inference_times:
+        aggregated_metrics['test_total_time'] = float(total_time)
+        aggregated_metrics['test_inference_time_mean'] = float(np.mean(inference_times))
+        aggregated_metrics['test_inference_time_std'] = float(np.std(inference_times))
+        aggregated_metrics['test_inference_time_min'] = float(np.min(inference_times))
+        aggregated_metrics['test_inference_time_max'] = float(np.max(inference_times))
+        aggregated_metrics['test_inferences_per_second'] = float(len(inference_times) / total_time)
+        aggregated_metrics['test_images_per_second'] = float(len(test_loader.dataset) / total_time)
+        aggregated_metrics['test_inference_time_per_image_mean'] = float(df_per_image['inference_time_per_image'].mean())
+        aggregated_metrics['test_inference_time_per_image_std'] = float(df_per_image['inference_time_per_image'].std())
+    
     if config.save_results:
-        run_dir = os.path.join(experiment_dir, f'run_{run_id}')
-        os.makedirs(run_dir, exist_ok=True)
-        pd.DataFrame(all_metrics).to_csv(os.path.join(run_dir, 'test_results.csv'), index=False)
-        with open(os.path.join(run_dir, 'test_metrics.json'), 'w') as f:
-            json.dump(final_metrics, f, indent=4)
-    return final_metrics
+        per_image_path = os.path.join(test_results_dir, f'per_image_metrics_run_{run_id}.csv')
+        df_per_image.to_csv(per_image_path, index=False)
+        print(f"✅ Métricas por imagem salvas em: {per_image_path}")
+        
+        aggregated_path = os.path.join(test_results_dir, f'aggregated_metrics_run_{run_id}.csv')
+        df_aggregated = pd.DataFrame([aggregated_metrics])
+        df_aggregated.to_csv(aggregated_path, index=False)
+        print(f"✅ Métricas agregadas salvas em: {aggregated_path}")
+        
+        stats_path = os.path.join(test_results_dir, f'test_statistics_run_{run_id}.json')
+        with open(stats_path, 'w') as f:
+            json.dump(convert_to_serializable(aggregated_metrics), f, indent=4)
+        print(f"✅ Estatísticas do teste salvas em: {stats_path}")
+    
+    return df_per_image, aggregated_metrics
 
-def test_model_average(config):
+def test_model_average_detailed(config):
+    """
+    Testa todos os modelos treinados e calcula a média com métricas detalhadas
+    """
     test_dataset = FundusSegmentationDataset(
-        config.test_images_dir, config.test_masks_dir, img_size=config.img_size
+        config.test_images_dir,
+        config.test_masks_dir,
+        img_size=config.img_size
     )
     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=2)
 
-    all_test_metrics = []
+    all_per_image_dfs = []
+    all_aggregated_metrics = []
+    
     for run_id in range(config.n_runs):
         print(f"\n📈 Testando Run {run_id+1}/{config.n_runs}")
+        
         model = ViTUNet(num_classes=1)
-        model_path = f"{config.best_model_path}_run{run_id}"
+        model_path = os.path.join(models_dir, f'best_model_run_{run_id}.pth')
+        
+        # Se não encontrar o melhor modelo, tentar o modelo final
+        if not os.path.exists(model_path):
+            model_path = os.path.join(models_dir, f'final_model_run_{run_id}.pth')
+        
         if os.path.exists(model_path):
             model.load_state_dict(torch.load(model_path, map_location=config.device))
             model = model.to(config.device)
-            metrics = test_model(model, test_loader, config.device, run_id, config)
-            all_test_metrics.append(metrics)
+            
+            df_per_image, aggregated_metrics = test_model_detailed(
+                model, test_loader, config.device, run_id, config
+            )
+            
+            df_per_image.insert(0, 'run_id', run_id)
+            all_per_image_dfs.append(df_per_image)
+            all_aggregated_metrics.append(aggregated_metrics)
         else:
-            print(f"⚠️ Modelo run {run_id} não encontrado!")
-
-    if all_test_metrics:
-        test_df = pd.DataFrame(all_test_metrics)
-        test_df.to_csv(os.path.join(experiment_dir, 'test_summary.csv'), index=False)
-        test_stats = {}
-        for col in test_df.columns:
-            test_stats[col] = {
-                'mean': float(test_df[col].mean()),
-                'std': float(test_df[col].std()),
-                'min': float(test_df[col].min()),
-                'max': float(test_df[col].max())
-            }
-        with open(os.path.join(experiment_dir, 'test_statistics.json'), 'w') as f:
-            json.dump(test_stats, f, indent=4)
+            print(f"⚠️ Modelo da run {run_id} não encontrado em: {model_path}")
+    
+    if all_per_image_dfs:
+        consolidated_per_image = pd.concat(all_per_image_dfs, ignore_index=True)
+        consolidated_per_image_path = os.path.join(test_results_dir, 'consolidated_per_image_metrics.csv')
+        consolidated_per_image.to_csv(consolidated_per_image_path, index=False)
+        print(f"\n✅ Métricas consolidadas por imagem salvas em: {consolidated_per_image_path}")
+        
+        df_aggregated = pd.DataFrame(all_aggregated_metrics)
+        df_aggregated.insert(0, 'run_id', range(len(all_aggregated_metrics)))
+        aggregated_summary_path = os.path.join(test_results_dir, 'aggregated_metrics_summary.csv')
+        df_aggregated.to_csv(aggregated_summary_path, index=False)
+        print(f"✅ Resumo das métricas agregadas salvo em: {aggregated_summary_path}")
+        
+        aggregated_stats = {}
+        for col in df_aggregated.columns:
+            if col != 'run_id' and pd.api.types.is_numeric_dtype(df_aggregated[col]):
+                aggregated_stats[col] = {
+                    'mean': float(df_aggregated[col].mean()),
+                    'std': float(df_aggregated[col].std()),
+                    'min': float(df_aggregated[col].min()),
+                    'max': float(df_aggregated[col].max())
+                }
+        
+        stats_df = pd.DataFrame(aggregated_stats).T
+        stats_summary_path = os.path.join(test_results_dir, 'aggregated_statistics_summary.csv')
+        stats_df.to_csv(stats_summary_path)
+        print(f"✅ Estatísticas consolidadas salvas em: {stats_summary_path}")
+        
         print("\n" + "="*50)
         print(f"RESULTADOS DO TESTE - {config.model_name} (Média entre runs)")
         print("="*50)
-        for metric, values in test_stats.items():
-            print(f"{metric}: {values['mean']:.4f} ± {values['std']:.4f}")
-        return test_df, test_stats
-    return None, None
+        
+        main_metrics = ['dice_mean', 'iou_mean', 'accuracy_mean', 'sensitivity_mean', 'specificity_mean']
+        print("\n📊 MÉTRICAS PRINCIPAIS (Média ± Desvio Padrão):")
+        for metric in main_metrics:
+            if metric in stats_df.index:
+                print(f"  {metric.replace('_mean', '')}: {stats_df.loc[metric, 'mean']:.4f} ± {stats_df.loc[metric, 'std']:.4f}")
+        
+        time_metrics = ['test_total_time', 'test_inference_time_mean', 'test_inference_time_per_image_mean']
+        print("\n⏱️ MÉTRICAS DE TEMPO (Média ± Desvio Padrão):")
+        for metric in time_metrics:
+            if metric in stats_df.index:
+                if 'time' in metric:
+                    print(f"  {metric.replace('_', ' ').title()}: {stats_df.loc[metric, 'mean']:.4f}s ± {stats_df.loc[metric, 'std']:.4f}s")
+                else:
+                    print(f"  {metric.replace('_', ' ').title()}: {stats_df.loc[metric, 'mean']:.4f} ± {stats_df.loc[metric, 'std']:.4f}")
+        
+        if 'test_images_per_second' in stats_df.index:
+            print(f"\n📈 Throughput: {stats_df.loc['test_images_per_second', 'mean']:.2f} imagens/s")
+        
+        print("\n📁 Arquivos gerados em: " + test_results_dir)
+        
+        return consolidated_per_image, df_aggregated, stats_df
+    
+    return None, None, None
 
 # ============================================
 # MAIN
@@ -688,17 +920,19 @@ def test_model_average(config):
 def main():
     print("="*70)
     print(f"{' ' * 20}🚀 {config.model_name}")
-    print(f"{' ' * 15}Segmentação de Vasos em Fundoscopia")
+    print(f"{' ' * 15}Segmentação de Vasos em Fundoscopia (RGB)")
     print("="*70)
 
     print(f"\n📊 CONFIGURAÇÕES:")
     print(f"  Device: {config.device}")
-    print(f"  Imagem: {config.img_size}x{config.img_size}")
+    print(f"  Imagem: {config.img_size}x{config.img_size} (RGB)")
     print(f"  Execuções: {config.n_runs}")
     print(f"  Épocas: {config.epochs}")
     print(f"  Paciência: {config.patience}")
     print(f"  Batch Size: {config.batch_size}")
     print(f"  LR: {config.learning_rate}")
+    print(f"  Medição de tempo: {'Ativada' if config.measure_time else 'Desativada'}")
+    print(f"  💾 Modelos serão salvos no final do treinamento")
     print(f"  Diretório: {experiment_dir}")
 
     print("\n📂 Carregando dados...")
@@ -728,13 +962,19 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,
                             num_workers=config.num_workers, pin_memory=config.pin_memory)
 
-    print(f"  Treino: {len(train_dataset)} imagens")
-    print(f"  Validação: {len(val_dataset)} imagens")
+    print(f"  Treino: {len(train_dataset)} imagens (RGB)")
+    print(f"  Validação: {len(val_dataset)} imagens (RGB)")
 
     all_histories = []
     all_best_dices = []
+    all_training_times = []
+    all_run_summaries = []
+    all_metrics_dfs = []
+    all_time_dfs = []
 
     for run_id in range(config.n_runs):
+        run_start_time = time.time()
+        
         print(f"\n{'#'*70}")
         print(f"# EXECUÇÃO {run_id+1}/{config.n_runs} - {config.model_name}")
         print(f"{'#'*70}")
@@ -754,23 +994,28 @@ def main():
         history, best_dice = train_model(model, train_loader, val_loader, config, run_id)
         all_histories.append(history)
         all_best_dices.append(best_dice)
-
-        if os.path.exists(config.test_images_dir) and os.path.exists(config.test_masks_dir):
-            try:
-                test_dataset = FundusSegmentationDataset(
-                    config.test_images_dir, config.test_masks_dir, img_size=config.img_size
-                )
-                test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=2)
-                model_path = f"{config.best_model_path}_run{run_id}"
-                if os.path.exists(model_path):
-                    model.load_state_dict(torch.load(model_path, map_location=config.device))
-                    model = model.to(config.device)
-                    test_model(model, test_loader, config.device, run_id, config)
-            except Exception as e:
-                print(f"⚠️ Erro no teste: {e}")
+        
+        run_total_time = time.time() - run_start_time
+        all_training_times.append(run_total_time)
+        
+        # Salvar resultados em CSV
+        if config.save_results:
+            df_metrics, df_time, df_summary = save_run_results_csv(history, run_id, config)
+            all_metrics_dfs.append(df_metrics)
+            all_time_dfs.append(df_time)
+            all_run_summaries.append(df_summary.iloc[0].to_dict())
+        
+        print(f"\n⏱️ Tempo total da execução {run_id+1}: {run_total_time:.2f}s")
 
         del model
         torch.cuda.empty_cache()
+
+    # Criar relatório consolidado final
+    if all_run_summaries and all_metrics_dfs and all_time_dfs:
+        print("\n" + "="*70)
+        print("📊 CRIANDO RELATÓRIO CONSOLIDADO FINAL")
+        print("="*70)
+        create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs)
 
     if all_best_dices:
         print("\n" + "="*70)
@@ -781,17 +1026,32 @@ def main():
         for i, d in enumerate(all_best_dices):
             print(f"  Run {i+1}: {d:.4f}")
         print(f"\nMédia: {best_dice_array.mean():.4f} ± {best_dice_array.std():.4f}")
+        
+        if all_training_times:
+            print(f"\n⏱️ Tempo total por execução:")
+            for i, t in enumerate(all_training_times):
+                print(f"  Run {i+1}: {t:.2f}s")
+            print(f"\n⏱️ Tempo médio por execução: {np.mean(all_training_times):.2f}s ± {np.std(all_training_times):.2f}s")
 
-        compute_average_results(config)
+    print("\n" + "="*70)
+    print("🧪 INICIANDO TESTE DOS MODELOS")
+    print("="*70)
 
-        if os.path.exists(config.test_images_dir) and os.path.exists(config.test_masks_dir):
-            test_df, test_stats = test_model_average(config)
+    if os.path.exists(config.test_images_dir) and os.path.exists(config.test_masks_dir):
+        test_df, test_agg_df, test_stats_df = test_model_average_detailed(config)
 
     print("\n" + "="*70)
     print(f"✅ EXPERIMENTO CONCLUÍDO - {config.model_name}")
     print("="*70)
-    print(f"\n📁 Resultados: {experiment_dir}")
-    print(f"📁 Relatórios: {reports_dir}")
+    print(f"\n📁 Resultados individuais: {experiment_dir}")
+    print(f"📁 Modelos salvos: {models_dir}")
+    print(f"📁 Relatórios consolidados: {reports_dir}")
+    print(f"📁 Resultados de teste: {test_results_dir}")
+    
+    if all_training_times:
+        print(f"\n⏱️ RESUMO DE TEMPO:")
+        print(f"  Tempo total médio por execução: {np.mean(all_training_times):.2f}s")
+        print(f"  Tempo total de todas as execuções: {np.sum(all_training_times):.2f}s")
 
 if __name__ == "__main__":
     main()
