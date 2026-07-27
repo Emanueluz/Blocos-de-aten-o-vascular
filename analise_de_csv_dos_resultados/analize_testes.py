@@ -3,12 +3,12 @@ import os
 
 # Defina os caminhos e nomes dos modelos
 modelos = [
-    ("EfficientNetB0_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza/EfficientNetB0_UNet_cinza/EfficientNetB0_UNet_cinza_14-07-2026_13:36:22/test_results/aggregated_metrics_summary.csv"),
-    ("MobileNetV2_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza/MobileNetV2_UNet_cinza/MobileNetV2_UNet_cinza_14_07_14_13:58:51/test_results/aggregated_metrics_summary.csv"),
-    ("ResNet101_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza/ResNet101_UNet_cinza/ResNet101_UNet_cinza_14_07_14_14:24:11/test_results/aggregated_metrics_summary.csv"),
-    ("SwinUNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza/SwinUNet_cinza/SwinUNet_cinza_14_07_14_22:10:42/test_results/aggregated_metrics_summary.csv"),
-    ("VGG19_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza/VGG19_UNet_Grayscale/VGG19_UNet_Grayscale_14_07_14_14:50:49/test_results/aggregated_metrics_summary.csv"),
-    ("ViTUNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza/ViTUNet_cinza/ViTUNet_cinza_14_07_14_17:53:48/test_results/aggregated_metrics_summary.csv")
+    ("EfficientNetB0_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_g_enhanced/results-g_enhanced/EfficientNetB0_UNet_g_enhanced/EfficientNetB0_UNet_g_enhanced_24-07-2026_17:01:57/test_results/aggregated_metrics_summary.csv"),
+    ("MobileNetV2_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_g_enhanced/results-g_enhanced/MobileNetV2_UNet_g_enhanced/MobileNetV2_UNet_g_enhanced_24_07_24_17:27:49/test_results/aggregated_metrics_summary.csv"),
+    ("ResNet101_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_g_enhanced/results-g_enhanced/ResNet101_UNet_g_enhanced/ResNet101_UNet_g_enhanced_24_07_24_17:51:05/test_results/aggregated_metrics_summary.csv"),
+    ("SwinUNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_g_enhanced/results-g_enhanced/SwinUNet_g_enhanced/SwinUNet_g_enhanced_25_07_25_11:06:56/test_results/aggregated_metrics_summary.csv"),
+    ("VGG19_UNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_g_enhanced/results-g_enhanced/VGG19_UNet_g_enhanced/VGG19_UNet_g_enhanced_24_07_24_18:09:05/test_results/aggregated_metrics_summary.csv"),
+    ("ViTUNet", "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_g_enhanced/results-g_enhanced/ViTUNet_g_enhanced/ViTUNet_g_enhanced_24_07_24_18:16:02/test_results/aggregated_metrics_summary.csv")
 ]
 
 # Lista para armazenar os dados agregados
@@ -40,5 +40,5 @@ for nome_modelo, caminho in modelos:
 df_consolidado = pd.DataFrame(dados_consolidados)
 
 # Salva o CSV consolidado
-df_consolidado.to_csv('/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_de_teste/CINZA_consolidated_metrics.csv', index=False)
-print("Arquivo 'consolidated_metrics.csv' gerado com sucesso!")
+df_consolidado.to_csv('/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_de_teste/G_CINZA_consolidated_metrics.csv', index=False)
+print("Arquivo 'G_consolidated_metrics.csv' gerado com sucesso!")

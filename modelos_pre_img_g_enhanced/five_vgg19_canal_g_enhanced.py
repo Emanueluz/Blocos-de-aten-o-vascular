@@ -37,11 +37,11 @@ print("="*50)
 # ============================================
 class Config:
     # Dados
-    train_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original'
+    train_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/g_enhanced'
     train_masks_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Ground truth'
-    test_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test/Original'
+    test_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/g_enhanced'
     test_masks_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test/Ground truth'
-    
+        
     num_classes = 1
     img_size = 224
     batch_size = 16
@@ -50,9 +50,9 @@ class Config:
     
     n_runs = 5
     save_results = True
-    results_dir = './results'
-    model_name = 'VGG19_UNet'
-    experiment_name = f'{model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    results_dir = './results-g_enhanced'
+    model_name = 'VGG19_UNet_g_enhanced'
+    experiment_name = f'{model_name}_{datetime.now().strftime("%d_%m_%d_%H:%M:%S")}'
     
     patience = 10
     min_delta = 0.001
@@ -61,7 +61,7 @@ class Config:
     best_model_path = './best_vgg19_segmentation.pth'
     
     measure_time = True
-    input_channels = 3  # RGB colorido
+    input_mode = 'grayscale'
 
 config = Config()
 
@@ -92,8 +92,7 @@ print(f"   Modelos salvos: {models_dir}")
 print(f"   Relatórios: {reports_dir}")
 print(f"   Teste: {test_results_dir}")
 print(f"   Device: {config.device}")
-print(f"   Canais de entrada: {config.input_channels} (RGB)")
-print()
+print(f"   Modo de entrada: {config.input_mode}")
 
 # ============================================
 # FUNÇÃO AUXILIAR
@@ -119,31 +118,54 @@ def convert_to_serializable(obj):
         return obj
 
 # ============================================
-# MODELO VGG19UNet
+# MODELO VGG19UNet MODIFICADO PARA GRAYSCALE
 # ============================================
 class VGG19UNet(nn.Module):
-    def __init__(self, num_classes=1, pretrained=True):
+    def __init__(self, num_classes=1, pretrained=True, input_channels=1):
         super().__init__()
 
         vgg = models.vgg19(
             weights=models.VGG19_Weights.IMAGENET1K_V1 if pretrained else None
         )
 
-        features = vgg.features
+        features = list(vgg.features)
+        
+        first_conv = features[0]
+        new_conv = nn.Conv2d(
+            in_channels=input_channels,
+            out_channels=first_conv.out_channels,
+            kernel_size=first_conv.kernel_size,
+            stride=first_conv.stride,
+            padding=first_conv.padding,
+            bias=first_conv.bias is not None
+        )
+        
+        if pretrained:
+            with torch.no_grad():
+                original_weights = first_conv.weight
+                new_weights = original_weights.mean(dim=1, keepdim=True)
+                new_conv.weight.data = new_weights
+                if first_conv.bias is not None:
+                    new_conv.bias.data = first_conv.bias.data
+        else:
+            new_conv.reset_parameters()
+        
+        features[0] = new_conv
+        features = nn.Sequential(*features)
 
-        self.enc1 = nn.Sequential(*features[0:4])      # 64
+        self.enc1 = nn.Sequential(*features[0:4])
         self.pool1 = nn.MaxPool2d(2, 2)
 
-        self.enc2 = nn.Sequential(*features[5:9])      # 128
+        self.enc2 = nn.Sequential(*features[5:9])
         self.pool2 = nn.MaxPool2d(2, 2)
 
-        self.enc3 = nn.Sequential(*features[10:18])    # 256
+        self.enc3 = nn.Sequential(*features[10:18])
         self.pool3 = nn.MaxPool2d(2, 2)
 
-        self.enc4 = nn.Sequential(*features[19:27])    # 512
+        self.enc4 = nn.Sequential(*features[19:27])
         self.pool4 = nn.MaxPool2d(2, 2)
 
-        self.enc5 = nn.Sequential(*features[28:36])    # 512
+        self.enc5 = nn.Sequential(*features[28:36])
 
         self.center = nn.Sequential(
             nn.Conv2d(512, 512, 3, padding=1),
@@ -208,6 +230,7 @@ class VGG19UNet(nn.Module):
         center = self.center(e5)
 
         d5 = self.up5(center)
+        # Ajustar tamanho se necessário
         if d5.shape[2:] != e4.shape[2:]:
             d5 = nn.functional.interpolate(d5, size=e4.shape[2:], mode='bilinear', align_corners=False)
         d5 = torch.cat([d5, e4], dim=1)
@@ -232,21 +255,22 @@ class VGG19UNet(nn.Module):
         d2 = self.dec2(d2)
 
         # Upsample final para 224x224
-        if d2.shape[2] != 224 or d2.shape[3] != 224:
-            d2 = nn.functional.interpolate(d2, size=(224, 224), mode='bilinear', align_corners=False)
+        d2 = nn.functional.interpolate(d2, size=(224, 224), mode='bilinear', align_corners=False)
         
         return self.final(d2)
 
 # ============================================
-# DATASET (RGB)
+# DATASET MODIFICADO PARA GRAYSCALE
 # ============================================
 class FundusSegmentationDataset(Dataset):
-    def __init__(self, images_dir, masks_dir, transform=None, mask_transform=None, img_size=224):
+    def __init__(self, images_dir, masks_dir, transform=None, mask_transform=None, img_size=224, input_mode='grayscale'):
         self.images_paths = sorted(glob(os.path.join(images_dir, '*.*g')))
         self.masks_paths = sorted(glob(os.path.join(masks_dir, '*.*g')))
+        self.input_mode = input_mode
         
         print(f"📂 Imagens encontradas: {len(self.images_paths)}")
         print(f"📂 Máscaras encontradas: {len(self.masks_paths)}")
+        print(f"📂 Modo de entrada: {input_mode}")
         
         img_names = {os.path.basename(p).lower(): p for p in self.images_paths}
         mask_names = {os.path.basename(p).lower(): p for p in self.masks_paths}
@@ -277,13 +301,11 @@ class FundusSegmentationDataset(Dataset):
     def __getitem__(self, idx):
         img_path, mask_path = self.valid_pairs[idx]
         
-        # Carregar imagem colorida (RGB)
-        image = cv2.imread(img_path)
+        # Carregar diretamente em tons de cinza (sem conversão)
+        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         if image is None:
             raise ValueError(f"Erro ao carregar imagem: {img_path}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
-        # Carregar máscara em tons de cinza
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise ValueError(f"Erro ao carregar máscara: {mask_path}")
@@ -292,11 +314,9 @@ class FundusSegmentationDataset(Dataset):
         mask = cv2.resize(mask, (self.img_size, self.img_size))
         
         mask = (mask > 127).astype(np.float32)
+        image = image.astype(np.float32) / 255.0
         
-        if self.transform:
-            image = self.transform(image)
-        else:
-            image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
+        image = torch.from_numpy(image).unsqueeze(0).float()
         
         if self.mask_transform:
             mask = self.mask_transform(mask)
@@ -324,11 +344,6 @@ class DiceBCELoss(nn.Module):
         return bce + (1 - dice)
 
 def compute_metrics(preds, targets, threshold=0.5):
-    if isinstance(preds, torch.Tensor):
-        preds = preds.cpu().numpy()
-    if isinstance(targets, torch.Tensor):
-        targets = targets.cpu().numpy()
-    
     if preds.max() > 1 or preds.min() < 0:
         preds = 1 / (1 + np.exp(-preds))
     
@@ -391,8 +406,8 @@ def train_epoch(model, train_loader, criterion, optimizer, device, measure_time=
         running_loss += loss.item()
         
         batch_metrics = compute_metrics(
-            outputs.detach(),
-            masks.detach()
+            outputs.detach().cpu().numpy(),
+            masks.detach().cpu().numpy()
         )
         for k in metrics:
             metrics[k] += batch_metrics[k]
@@ -443,8 +458,8 @@ def validate_epoch(model, val_loader, criterion, device, measure_time=True):
             running_loss += loss.item()
             
             batch_metrics = compute_metrics(
-                outputs,
-                masks
+                outputs.cpu().numpy(),
+                masks.cpu().numpy()
             )
             for k in metrics:
                 metrics[k] += batch_metrics[k]
@@ -495,7 +510,7 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
     print(f"\n🚀 Treinamento Run {run_id+1}/{config.n_runs} - {config.model_name}")
     print(f"Dispositivo: {config.device}")
     print(f"Tamanho da imagem: {config.img_size}x{config.img_size}")
-    print(f"Canais de entrada: {config.input_channels} (RGB)")
+    print(f"Modo de entrada: {config.input_mode} (1 canal)")
     print(f"Total de parâmetros: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Paciência: {config.patience} épocas")
     print(f"Épocas máximas: {config.epochs}")
@@ -647,7 +662,7 @@ def save_run_results_csv(history, run_id, config):
         'run_id': run_id,
         'model_name': config.model_name,
         'img_size': config.img_size,
-        'input_channels': config.input_channels,
+        'input_mode': config.input_mode,
         'best_val_dice': history['early_stop']['best_dice'],
         'best_epoch': history['early_stop']['best_epoch'] + 1,
         'total_epochs': len(history['train_loss']),
@@ -677,7 +692,6 @@ def save_run_results_csv(history, run_id, config):
 def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs):
     """Cria um relatório consolidado final com todas as execuções"""
     
-    # ========== RELATÓRIO CONSOLIDADO DE MÉTRICAS ==========
     consolidated_metrics = pd.DataFrame()
     for run_id, df in enumerate(all_metrics_dfs):
         df_copy = df.copy()
@@ -688,7 +702,6 @@ def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_t
     consolidated_metrics.to_csv(metrics_consolidated_path, index=False)
     print(f"✅ Relatório consolidado de métricas salvo em: {metrics_consolidated_path}")
     
-    # ========== RELATÓRIO CONSOLIDADO DE TEMPO ==========
     consolidated_time = pd.DataFrame()
     for run_id, df in enumerate(all_time_dfs):
         df_copy = df.copy()
@@ -699,13 +712,11 @@ def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_t
     consolidated_time.to_csv(time_consolidated_path, index=False)
     print(f"✅ Relatório consolidado de tempo salvo em: {time_consolidated_path}")
     
-    # ========== RELATÓRIO DE RESUMO DAS EXECUÇÕES ==========
     summary_df = pd.DataFrame(all_run_summaries)
     summary_consolidated_path = os.path.join(reports_dir, f'RESUMO_EXECUCOES_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
     summary_df.to_csv(summary_consolidated_path, index=False)
     print(f"✅ Resumo consolidado das execuções salvo em: {summary_consolidated_path}")
     
-    # ========== ESTATÍSTICAS DESCRITIVAS ==========
     final_metrics_cols = ['final_val_dice', 'final_val_loss', 'final_val_accuracy', 
                           'final_val_iou', 'final_val_sensitivity', 'final_val_specificity']
     
@@ -744,14 +755,13 @@ def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_t
     stats_df.to_csv(stats_path)
     print(f"✅ Estatísticas descritivas salvas em: {stats_path}")
     
-    # Exibir resumo
     print("\n" + "="*70)
     print("📊 RESUMO FINAL DAS EXECUÇÕES")
     print("="*70)
     print(f"\nModelo: {config.model_name}")
     print(f"Número de execuções: {config.n_runs}")
     print(f"Tamanho da imagem: {config.img_size}x{config.img_size}")
-    print(f"Canais de entrada: {config.input_channels} (RGB)")
+    print(f"Modo de entrada: {config.input_mode} (1 canal)")
     print(f"Dispositivo: {config.device}")
     print("\n📈 MÉTRICAS (Média ± Desvio Padrão):")
     for col in ['best_val_dice', 'final_val_dice', 'final_val_iou', 'final_val_accuracy']:
@@ -866,7 +876,8 @@ def test_model_average_detailed(config):
     test_dataset = FundusSegmentationDataset(
         config.test_images_dir,
         config.test_masks_dir,
-        img_size=config.img_size
+        img_size=config.img_size,
+        input_mode=config.input_mode
     )
     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=4)
     
@@ -876,7 +887,8 @@ def test_model_average_detailed(config):
     for run_id in range(config.n_runs):
         print(f"\n📈 Testando Run {run_id+1}/{config.n_runs}")
         
-        model = VGG19UNet(num_classes=1)
+        input_channels = 1
+        model = VGG19UNet(num_classes=1, pretrained=False, input_channels=input_channels)
         model_path = os.path.join(models_dir, f'best_model_run_{run_id}.pth')
         
         # Se não encontrar o melhor modelo, tentar o modelo final
@@ -959,8 +971,8 @@ def visualize_segmentation(images, masks, preds, idx):
     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
     
     for i in range(min(4, len(images))):
-        img = images[i].permute(1, 2, 0).numpy()
-        axes[0, i].imshow(img)
+        img = images[i].squeeze().numpy()
+        axes[0, i].imshow(img, cmap='gray')
         axes[0, i].set_title(f'Original {idx*4+i+1}')
         axes[0, i].axis('off')
         
@@ -985,12 +997,13 @@ def visualize_segmentation(images, masks, preds, idx):
 def main():
     print("="*70)
     print(f"{' ' * 20}🚀 {config.model_name}")
-    print(f"{' ' * 15}Segmentação de Vasos em Fundoscopia (RGB)")
+    print(f"{' ' * 15}Segmentação de Vasos em Fundoscopia (Grayscale)")
     print("="*70)
     
     print(f"\n📊 CONFIGURAÇÕES:")
     print(f"  Device: {config.device}")
-    print(f"  Imagem: {config.img_size}x{config.img_size} (RGB)")
+    print(f"  Imagem: {config.img_size}x{config.img_size} (1 canal)")
+    print(f"  Modo de entrada: {config.input_mode}")
     print(f"  Execuções: {config.n_runs}")
     print(f"  Épocas máximas: {config.epochs}")
     print(f"  Paciência: {config.patience} épocas")
@@ -1000,13 +1013,13 @@ def main():
     print(f"  💾 Modelos serão salvos no final do treinamento")
     print(f"  Diretório: {experiment_dir}")
     
-    # Preparar dados
     print("\n📂 Carregando dados...")
     try:
         full_dataset = FundusSegmentationDataset(
             config.train_images_dir, 
             config.train_masks_dir,
-            img_size=config.img_size
+            img_size=config.img_size,
+            input_mode=config.input_mode
         )
     except Exception as e:
         print(f"❌ Erro ao carregar dados: {e}")
@@ -1032,10 +1045,9 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4)
     
-    print(f"  Treino: {len(train_dataset)} imagens (RGB)")
-    print(f"  Validação: {len(val_dataset)} imagens (RGB)")
+    print(f"  Treino: {len(train_dataset)} imagens (grayscale)")
+    print(f"  Validação: {len(val_dataset)} imagens (grayscale)")
     
-    # Executar múltiplos treinamentos
     all_histories = []
     all_best_dices = []
     all_training_times = []
@@ -1051,10 +1063,11 @@ def main():
         print(f"{'#'*70}")
         
         try:
-            model = VGG19UNet(num_classes=1, pretrained=True)
+            input_channels = 1
+            model = VGG19UNet(num_classes=1, pretrained=True, input_channels=input_channels)
             model = model.to(config.device)
             
-            test_input = torch.randn(1, 3, 224, 224).to(config.device)
+            test_input = torch.randn(1, input_channels, 224, 224).to(config.device)
             test_output = model(test_input)
             print(f"✅ Teste forward pass - Input: {test_input.shape}, Output: {test_output.shape}")
         except Exception as e:
@@ -1068,7 +1081,6 @@ def main():
         run_total_time = time.time() - run_start_time
         all_training_times.append(run_total_time)
         
-        # Salvar resultados em CSV
         if config.save_results:
             df_metrics, df_time, df_summary = save_run_results_csv(history, run_id, config)
             all_metrics_dfs.append(df_metrics)
@@ -1080,14 +1092,12 @@ def main():
         del model
         torch.cuda.empty_cache()
     
-    # Criar relatório consolidado final
     if all_run_summaries and all_metrics_dfs and all_time_dfs:
         print("\n" + "="*70)
         print("📊 CRIANDO RELATÓRIO CONSOLIDADO FINAL")
         print("="*70)
         create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs)
     
-    # Calcular médias
     if all_best_dices:
         print("\n" + "="*70)
         print("📊 CALCULANDO MÉDIAS ENTRE EXECUÇÕES")

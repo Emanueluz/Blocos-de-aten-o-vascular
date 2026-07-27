@@ -123,17 +123,17 @@ def analisar_runs(diretorio_base, pasta_saida_base, nome_modelo):
 # ============================================
 
 # Defina os caminhos
-base_entrada = "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza"
-base_saida = "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_cinza"
+base_entrada = "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_g_enhanced/results-g_enhanced"
+base_saida = "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_g_enhanced"
 
 # Dicionário com os modelos e seus diretórios
 modelos = {
-    "EfficientNetB0_UNet_cinza": f"{base_entrada}/EfficientNetB0_UNet_cinza/EfficientNetB0_UNet_cinza_14-07-2026_13:36:22",
-    "MobileNetV2_UNet_cinza": f"{base_entrada}/MobileNetV2_UNet_cinza/MobileNetV2_UNet_cinza_14_07_14_13:58:51",
-    "ResNet101_UNet_cinza": f"{base_entrada}/ResNet101_UNet_cinza/ResNet101_UNet_cinza_14_07_14_14:24:11",
-    "SwinUNet_cinza": f"{base_entrada}/SwinUNet_cinza/SwinUNet_cinza_14_07_14_22:10:42",
-    "VGG19_UNet_cinza": f"{base_entrada}/VGG19_UNet_Grayscale/VGG19_UNet_Grayscale_14_07_14_14:50:49",
-    "ViTUNet_cinza": f"{base_entrada}/ViTUNet_cinza/ViTUNet_cinza_14_07_14_17:53:48",
+    "EfficientNetB0_UNet_cinza": f"{base_entrada}/EfficientNetB0_UNet_g_enhanced/EfficientNetB0_UNet_g_enhanced_24-07-2026_17:01:57",
+    "MobileNetV2_UNet_cinza": f"{base_entrada}/MobileNetV2_UNet_g_enhanced/MobileNetV2_UNet_g_enhanced_24_07_24_17:27:49",
+    "ResNet101_UNet_cinza": f"{base_entrada}/ResNet101_UNet_g_enhanced/ResNet101_UNet_g_enhanced_24_07_24_17:51:05",
+    "SwinUNet_cinza": f"{base_entrada}/SwinUNet_g_enhanced/SwinUNet_g_enhanced_25_07_25_11:06:56",
+    "VGG19_UNet_cinza": f"{base_entrada}/VGG19_UNet_g_enhanced/VGG19_UNet_g_enhanced_24_07_24_18:09:05",
+    "ViTUNet_cinza": f"{base_entrada}/ViTUNet_g_enhanced/ViTUNet_g_enhanced_24_07_24_18:16:02",
 }
 
 print("INICIANDO ANÁLISE DOS RUNS...")

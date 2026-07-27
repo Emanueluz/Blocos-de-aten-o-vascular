@@ -32,7 +32,7 @@ class Config:
     img_size = 224
     batch_size = 8
     epochs = 50
-    learning_rate = 0.0001
+    learning_rate = 0.001
     
     n_runs = 5
     save_results = True
@@ -40,7 +40,7 @@ class Config:
     model_name = 'ViTUNet'
     experiment_name = f'{model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     
-    patience = 5
+    patience = 10
     min_delta = 0.001
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -8,17 +8,17 @@ import time
 # CONFIGURAÇÕES
 # ============================================================
  
-DIRETORIO_ENTRADA = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original"
+DIRETORIO_ENTRADA = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test/Original"
  
 # DIRETÓRIOS DE SAÍDA SEPARADOS (cada um é um diretório raiz)
-DIRETORIO_R =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canal_R"
-DIRETORIO_G =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canal_G"
-DIRETORIO_B =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canal_B"
-DIRETORIO_MEDIA =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/media"
-DIRETORIO_MAX =        "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/max"
-DIRETORIO_SOMA =       "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/soma"
-DIRETORIO_CANNY =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/canny"
-DIRETORIO_EQUALIZADO = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/equalizado"
+DIRETORIO_gray_enhanced =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/gray_enhanced"
+DIRETORIO_G =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/canal_G"
+DIRETORIO_B =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/canal_B" 
+DIRETORIO_MEDIA =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/media"
+DIRETORIO_MAX =        "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/max"
+DIRETORIO_SOMA =       "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/soma"
+DIRETORIO_CANNY =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/canny"
+DIRETORIO_EQUALIZADO = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/equalizado"
 
 # Extensões de imagem suportadas
 EXTENSOES = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif')
@@ -71,7 +71,12 @@ def processar_imagem(caminho_imagem):
     
     # Separar canais
     b, g, r = cv2.split(img)
+    rb_combined = cv2.addWeighted(r, 0.3, b, 0.1, 0)  # gamma = 0
     
+    # Depois: combinar com G
+    gray_enhanced = cv2.addWeighted(g, 0.6, rb_combined, 0.4, 0)  # 0.6 + 0.4 = 1.0
+
+    '''
     # Processar cada canal
     sobel_r = sobel_completo_canal(r)
     sobel_g = sobel_completo_canal(g)
@@ -99,7 +104,7 @@ def processar_imagem(caminho_imagem):
     
     # Método 5: Soma equalizada
     sobel_soma_equalizado = cv2.equalizeHist(sobel_soma)
-    
+    '''
     # Nome base do arquivo
     nome_base = Path(caminho_imagem).stem
     
@@ -108,7 +113,7 @@ def processar_imagem(caminho_imagem):
     # ============================================================
     
     # Criar cada diretório individualmente
-    os.makedirs(DIRETORIO_R, exist_ok=True)
+    os.makedirs(DIRETORIO_gray_enhanced, exist_ok=True)
     os.makedirs(DIRETORIO_G, exist_ok=True)
     os.makedirs(DIRETORIO_B, exist_ok=True)
     os.makedirs(DIRETORIO_MEDIA, exist_ok=True)
@@ -122,28 +127,28 @@ def processar_imagem(caminho_imagem):
     # ============================================================
     
     # Salvar canal R
-    cv2.imwrite(os.path.join(DIRETORIO_R, f"{nome_base}.png"), sobel_r)
+    cv2.imwrite(os.path.join(DIRETORIO_gray_enhanced, f"{nome_base}.png"), gray_enhanced)
     
     # Salvar canal G
-    cv2.imwrite(os.path.join(DIRETORIO_G, f"{nome_base}.png"), sobel_g)
+    cv2.imwrite(os.path.join(DIRETORIO_G, f"{nome_base}.png"), g)
     
     # Salvar canal B
-    cv2.imwrite(os.path.join(DIRETORIO_B, f"{nome_base}.png"), sobel_b)
+    #cv2.imwrite(os.path.join(DIRETORIO_B, f"{nome_base}.png"), sobel_b)
     
     # Salvar média
-    cv2.imwrite(os.path.join(DIRETORIO_MEDIA, f"{nome_base}.png"), sobel_media)
+    #cv2.imwrite(os.path.join(DIRETORIO_MEDIA, f"{nome_base}.png"), sobel_media)
     
     # Salvar máximo
-    cv2.imwrite(os.path.join(DIRETORIO_MAX, f"{nome_base}.png"), sobel_max)
+    #cv2.imwrite(os.path.join(DIRETORIO_MAX, f"{nome_base}.png"), sobel_max)
     
     # Salvar soma
-    cv2.imwrite(os.path.join(DIRETORIO_SOMA, f"{nome_base}.png"), sobel_soma)
+    #cv2.imwrite(os.path.join(DIRETORIO_SOMA, f"{nome_base}.png"), sobel_soma)
     
     # Salvar Canny
-    cv2.imwrite(os.path.join(DIRETORIO_CANNY, f"{nome_base}.png"), sobel_canny)
+    #cv2.imwrite(os.path.join(DIRETORIO_CANNY, f"{nome_base}.png"), sobel_canny)
     
     # Salvar equalizado
-    cv2.imwrite(os.path.join(DIRETORIO_EQUALIZADO, f"{nome_base}.png"), sobel_soma_equalizado)
+    #cv2.imwrite(os.path.join(DIRETORIO_EQUALIZADO, f"{nome_base}.png"), sobel_soma_equalizado)
     
     return True
 
@@ -173,7 +178,7 @@ def processar_diretorio(diretorio_entrada):
     print(f"{'='*60}\n")
     
     print("📂 Diretórios de saída:")
-    print(f"   ├── {DIRETORIO_R}")
+    print(f"   ├── {DIRETORIO_gray_enhanced}")
     print(f"   ├── {DIRETORIO_G}")
     print(f"   ├── {DIRETORIO_B}")
     print(f"   ├── {DIRETORIO_MEDIA}")
@@ -209,7 +214,7 @@ def processar_diretorio(diretorio_entrada):
     print(f"{'='*60}")
     
     print(f"\n📁 Resultados salvos em diretórios separados:")
-    print(f"   - Canal R: {DIRETORIO_R}")
+    print(f"   - Canal R: {DIRETORIO_gray_enhanced}")
     print(f"   - Canal G: {DIRETORIO_G}")
     print(f"   - Canal B: {DIRETORIO_B}")
     print(f"   - Média: {DIRETORIO_MEDIA}")

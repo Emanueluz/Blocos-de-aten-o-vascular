@@ -1,16 +1,15 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
-from torchvision import models, transforms
-from torch.utils.data import DataLoader, Dataset
-import numpy as np
+import torchvision.models as models
+from torch.utils.data import Dataset, DataLoader
 import cv2
+import numpy as np
 import os
 from glob import glob
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score, jaccard_score, f1_score
+from sklearn.metrics import accuracy_score
 import pandas as pd
 from datetime import datetime
 import json
@@ -20,7 +19,7 @@ import time
 warnings.filterwarnings('ignore')
 
 print("="*50)
-print("DIAGNÓSTICO DE GPU")
+print("DIAGNÓSTICO DE GPU")                                                                           
 print("="*50)
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
@@ -30,6 +29,7 @@ if torch.cuda.is_available():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 else:
     print("❌ CUDA NÃO está disponível!")
+    print("Usando CPU para treinamento...")
 print("="*50)
 
 # ============================================
@@ -37,11 +37,11 @@ print("="*50)
 # ============================================
 class Config:
     # Dados
-    train_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Original'
+    train_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/train/g_enhanced'
     train_masks_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Ground truth'
-    test_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test/Original'
+    test_images_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/g_enhanced'
     test_masks_dir = '/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test/Ground truth'
-    
+        
     num_classes = 1
     img_size = 224
     batch_size = 16
@@ -50,18 +50,24 @@ class Config:
     
     n_runs = 5
     save_results = True
-    results_dir = './results'
-    model_name = 'VGG19_UNet'
-    experiment_name = f'{model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    results_dir = './results-g_enhanced'
+    model_name = 'EfficientNetB0_UNet_g_enhanced'
+    experiment_name = f'{model_name}_{datetime.now().strftime("%d-%m-%Y_%H:%M:%S")}'
     
-    patience = 10
+    patience = 5
     min_delta = 0.001
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    best_model_path = './best_vgg19_segmentation.pth'
+    best_model_path = './best_EfficientNetB0UNet_g_enhanced.pth'
     
+    num_workers = 4
+    pin_memory = True if torch.cuda.is_available() else False
+    pretrained = True
+    scheduler_patience = 5
+    scheduler_factor = 0.5
+    
+    input_mode = 'grayscale'
     measure_time = True
-    input_channels = 3  # RGB colorido
 
 config = Config()
 
@@ -92,7 +98,7 @@ print(f"   Modelos salvos: {models_dir}")
 print(f"   Relatórios: {reports_dir}")
 print(f"   Teste: {test_results_dir}")
 print(f"   Device: {config.device}")
-print(f"   Canais de entrada: {config.input_channels} (RGB)")
+print(f"   Modo de entrada: {config.input_mode}")
 print()
 
 # ============================================
@@ -119,134 +125,188 @@ def convert_to_serializable(obj):
         return obj
 
 # ============================================
-# MODELO VGG19UNet
+# MODELO EfficientNetB0 UNet CORRIGIDO
 # ============================================
-class VGG19UNet(nn.Module):
-    def __init__(self, num_classes=1, pretrained=True):
-        super().__init__()
 
-        vgg = models.vgg19(
-            weights=models.VGG19_Weights.IMAGENET1K_V1 if pretrained else None
+
+class EfficientNetB0UNet(nn.Module):
+    """
+    U-Net com encoder EfficientNet B0
+    Modificado para aceitar imagens em tons de cinza (1 canal)
+    """
+    def __init__(self, num_classes=1, pretrained=True, input_channels=1):
+        super(EfficientNetB0UNet, self).__init__()
+        
+        self.input_channels = input_channels
+        
+        # Carregar EfficientNet B0
+        if pretrained:
+            efficientnet = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1)
+        else:
+            efficientnet = models.efficientnet_b0(weights=None)
+        
+        features = efficientnet.features
+        
+        # MODIFICAÇÃO: Ajustar a primeira camada convolucional para aceitar 1 canal
+        # A EfficientNet espera 3 canais (RGB), mas temos 1 canal (grayscale)
+        # Então substituímos a primeira convolução
+        first_conv = features[0][0]  # Primeira camada conv2d
+        
+        # Criar nova convolução com 1 canal de entrada
+        # Mantendo o mesmo número de filtros de saída (32) e kernel size
+        new_conv = nn.Conv2d(
+            in_channels=input_channels,  # 1 canal (grayscale)
+            out_channels=first_conv.out_channels,
+            kernel_size=first_conv.kernel_size,
+            stride=first_conv.stride,
+            padding=first_conv.padding,
+            bias=first_conv.bias is not None
         )
-
-        features = vgg.features
-
-        self.enc1 = nn.Sequential(*features[0:4])      # 64
-        self.pool1 = nn.MaxPool2d(2, 2)
-
-        self.enc2 = nn.Sequential(*features[5:9])      # 128
-        self.pool2 = nn.MaxPool2d(2, 2)
-
-        self.enc3 = nn.Sequential(*features[10:18])    # 256
-        self.pool3 = nn.MaxPool2d(2, 2)
-
-        self.enc4 = nn.Sequential(*features[19:27])    # 512
-        self.pool4 = nn.MaxPool2d(2, 2)
-
-        self.enc5 = nn.Sequential(*features[28:36])    # 512
-
+        
+        # Inicializar os pesos da nova convolução
+        # Se for pretrained, queremos aproveitar os pesos do RGB
+        if pretrained:
+            # Média dos pesos dos 3 canais RGB para 1 canal
+            with torch.no_grad():
+                # Pesos originais: (out_channels, 3, k, k)
+                original_weights = first_conv.weight
+                # Calcular a média ao longo do canal de entrada (dim=1)
+                new_weights = original_weights.mean(dim=1, keepdim=True)
+                new_conv.weight.data = new_weights
+                
+                # Copiar o bias se existir
+                if first_conv.bias is not None:
+                    new_conv.bias.data = first_conv.bias.data
+        else:
+            # Inicialização padrão se não for pretrained
+            new_conv.reset_parameters()
+        
+        # Substituir a primeira convolução
+        features[0][0] = new_conv
+        
+        # EfficientNet B0 channels reais:
+        # Block 1: 32 canais
+        # Block 2: 32 canais  
+        # Block 3: 40 canais
+        # Block 4: 80 canais
+        # Block 5: 112 canais
+        # Block 6: 192 canais
+        # Block 7: 320 canais
+        # Block 8: 1280 canais (final)
+        
+        self.enc1 = features[0:1]      # 32 canais, 112x112
+        self.enc2 = features[1:2]      # 16 canais, 56x56
+        self.enc3 = features[2:4]      # 40 canais, 28x28
+        self.enc4 = features[4:6]      # 112 canais, 14x14
+        self.enc5 = features[6:8]      # 320 canais, 7x7
+        
+        # Center (bottleneck)
         self.center = nn.Sequential(
-            nn.Conv2d(512, 512, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(512, 512, 3, padding=1),
-            nn.ReLU(inplace=True)
-        )
-
-        self.up5 = nn.ConvTranspose2d(512, 512, 2, stride=2)
-        self.dec5 = nn.Sequential(
-            nn.Conv2d(1024, 256, 3, padding=1),
+            nn.Conv2d(320, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True)
         )
-
-        self.up4 = nn.ConvTranspose2d(256, 256, 2, stride=2)
-        self.dec4 = nn.Sequential(
-            nn.Conv2d(512, 128, 3, padding=1),
+        
+        # Decoder - com canais ajustados para EfficientNet
+        self.up5 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.dec5 = nn.Sequential(
+            nn.Conv2d(128 + 112, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
             nn.ReLU(inplace=True)
         )
-
-        self.up3 = nn.ConvTranspose2d(128, 128, 2, stride=2)
-        self.dec3 = nn.Sequential(
-            nn.Conv2d(256, 64, 3, padding=1),
+        
+        self.up4 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.dec4 = nn.Sequential(
+            nn.Conv2d(64 + 40, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(inplace=True)
         )
-
-        self.up2 = nn.ConvTranspose2d(64, 64, 2, stride=2)
-        self.dec2 = nn.Sequential(
-            nn.Conv2d(128, 32, 3, padding=1),
+        
+        self.up3 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
+        self.dec3 = nn.Sequential(
+            nn.Conv2d(32 + 16, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.Conv2d(32, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True)
         )
-
-        self.final = nn.Conv2d(32, num_classes, 1)
-
-    def forward(self, x):
-        # Ajustar tamanho se necessário para VGG19
-        if x.shape[2] != 224 or x.shape[3] != 224:
-            x = nn.functional.interpolate(x, size=(224, 224), mode='bilinear', align_corners=False)
         
-        e1 = self.enc1(x)
-        p1 = self.pool1(e1)
-
-        e2 = self.enc2(p1)
-        p2 = self.pool2(e2)
-
-        e3 = self.enc3(p2)
-        p3 = self.pool3(e3)
-
-        e4 = self.enc4(p3)
-        p4 = self.pool4(e4)
-
-        e5 = self.enc5(p4)
-
-        center = self.center(e5)
-
-        d5 = self.up5(center)
+        self.up2 = nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2)
+        self.dec2 = nn.Sequential(
+            nn.Conv2d(16 + 32, 16, 3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True)
+        )
+        
+        self.final_conv = nn.Conv2d(16, num_classes, kernel_size=1)
+    
+    def forward(self, x):
+        e1 = self.enc1(x)   # 32 x 112 x 112
+        e2 = self.enc2(e1)  # 16 x 56 x 56
+        e3 = self.enc3(e2)  # 40 x 28 x 28
+        e4 = self.enc4(e3)  # 112 x 14 x 14
+        e5 = self.enc5(e4)  # 320 x 7 x 7
+        
+        center = self.center(e5)  # 256 x 7 x 7
+        
+        d5 = self.up5(center)     # 128 x 14 x 14
         if d5.shape[2:] != e4.shape[2:]:
             d5 = nn.functional.interpolate(d5, size=e4.shape[2:], mode='bilinear', align_corners=False)
         d5 = torch.cat([d5, e4], dim=1)
-        d5 = self.dec5(d5)
-
-        d4 = self.up4(d5)
+        d5 = self.dec5(d5)        # 128 x 14 x 14
+        
+        d4 = self.up4(d5)         # 64 x 28 x 28
         if d4.shape[2:] != e3.shape[2:]:
             d4 = nn.functional.interpolate(d4, size=e3.shape[2:], mode='bilinear', align_corners=False)
         d4 = torch.cat([d4, e3], dim=1)
-        d4 = self.dec4(d4)
-
-        d3 = self.up3(d4)
+        d4 = self.dec4(d4)        # 64 x 28 x 28
+        
+        d3 = self.up3(d4)         # 32 x 56 x 56
         if d3.shape[2:] != e2.shape[2:]:
             d3 = nn.functional.interpolate(d3, size=e2.shape[2:], mode='bilinear', align_corners=False)
         d3 = torch.cat([d3, e2], dim=1)
-        d3 = self.dec3(d3)
-
-        d2 = self.up2(d3)
+        d3 = self.dec3(d3)        # 32 x 56 x 56
+        
+        d2 = self.up2(d3)         # 16 x 112 x 112
         if d2.shape[2:] != e1.shape[2:]:
             d2 = nn.functional.interpolate(d2, size=e1.shape[2:], mode='bilinear', align_corners=False)
         d2 = torch.cat([d2, e1], dim=1)
-        d2 = self.dec2(d2)
-
-        # Upsample final para 224x224
-        if d2.shape[2] != 224 or d2.shape[3] != 224:
-            d2 = nn.functional.interpolate(d2, size=(224, 224), mode='bilinear', align_corners=False)
+        d2 = self.dec2(d2)        # 16 x 112 x 112
         
-        return self.final(d2)
+        d2 = nn.functional.interpolate(d2, size=(224, 224), mode='bilinear', align_corners=False)
+        
+        out = self.final_conv(d2)
+        
+        return out
+
+
+
 
 # ============================================
-# DATASET (RGB)
+# DATASET MODIFICADO PARA GRAYSCALE
 # ============================================
 class FundusSegmentationDataset(Dataset):
-    def __init__(self, images_dir, masks_dir, transform=None, mask_transform=None, img_size=224):
+    def __init__(self, images_dir, masks_dir, img_size=224, input_mode='grayscale'):
         self.images_paths = sorted(glob(os.path.join(images_dir, '*.*g')))
         self.masks_paths = sorted(glob(os.path.join(masks_dir, '*.*g')))
+        self.input_mode = input_mode
         
         print(f"📂 Imagens encontradas: {len(self.images_paths)}")
         print(f"📂 Máscaras encontradas: {len(self.masks_paths)}")
+        print(f"📂 Modo de entrada: {input_mode}")
         
         img_names = {os.path.basename(p).lower(): p for p in self.images_paths}
         mask_names = {os.path.basename(p).lower(): p for p in self.masks_paths}
@@ -267,8 +327,6 @@ class FundusSegmentationDataset(Dataset):
         if len(self.valid_pairs) == 0:
             raise ValueError("Nenhum par de imagem-máscara encontrado!")
         
-        self.transform = transform
-        self.mask_transform = mask_transform
         self.img_size = img_size
     
     def __len__(self):
@@ -277,13 +335,10 @@ class FundusSegmentationDataset(Dataset):
     def __getitem__(self, idx):
         img_path, mask_path = self.valid_pairs[idx]
         
-        # Carregar imagem colorida (RGB)
-        image = cv2.imread(img_path)
+        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         if image is None:
             raise ValueError(f"Erro ao carregar imagem: {img_path}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
-        # Carregar máscara em tons de cinza
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise ValueError(f"Erro ao carregar máscara: {mask_path}")
@@ -291,62 +346,56 @@ class FundusSegmentationDataset(Dataset):
         image = cv2.resize(image, (self.img_size, self.img_size))
         mask = cv2.resize(mask, (self.img_size, self.img_size))
         
+        image = image.astype(np.float32) / 255.0
         mask = (mask > 127).astype(np.float32)
         
-        if self.transform:
-            image = self.transform(image)
-        else:
-            image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
-        
-        if self.mask_transform:
-            mask = self.mask_transform(mask)
-        else:
-            mask = torch.from_numpy(mask).unsqueeze(0).float()
+        image = torch.from_numpy(image).unsqueeze(0)
+        mask = torch.from_numpy(mask).unsqueeze(0)
         
         return image, mask
 
 # ============================================
-# LOSS E MÉTRICAS
+# LOSS FUNCTION
 # ============================================
 class DiceBCELoss(nn.Module):
     def __init__(self, smooth=1e-6):
-        super().__init__()
+        super(DiceBCELoss, self).__init__()
         self.smooth = smooth
         self.bce = nn.BCEWithLogitsLoss()
-
+    
     def forward(self, preds, targets):
         bce = self.bce(preds, targets)
-        preds = torch.sigmoid(preds)
-        preds = preds.view(-1)
-        targets = targets.view(-1)
-        intersection = (preds * targets).sum()
-        dice = (2.0 * intersection + self.smooth) / (preds.sum() + targets.sum() + self.smooth)
-        return bce + (1 - dice)
+        preds_sigmoid = torch.sigmoid(preds)
+        preds_flat = preds_sigmoid.view(-1)
+        targets_flat = targets.view(-1)
+        intersection = (preds_flat * targets_flat).sum()
+        dice = (2.0 * intersection + self.smooth) / (preds_flat.sum() + targets_flat.sum() + self.smooth)
+        dice_loss = 1 - dice
+        return bce + dice_loss
 
+# ============================================
+# MÉTRICAS
+# ============================================
 def compute_metrics(preds, targets, threshold=0.5):
     if isinstance(preds, torch.Tensor):
         preds = preds.cpu().numpy()
     if isinstance(targets, torch.Tensor):
         targets = targets.cpu().numpy()
     
-    if preds.max() > 1 or preds.min() < 0:
+    if preds.min() < 0 or preds.max() > 1:
         preds = 1 / (1 + np.exp(-preds))
     
     preds_binary = (preds > threshold).astype(np.uint8)
     targets_binary = targets.astype(np.uint8)
     
     acc = accuracy_score(targets_binary.flatten(), preds_binary.flatten())
-    
     intersection = (preds_binary & targets_binary).sum()
-    dice = (2.0 * intersection) / (preds_binary.sum() + targets_binary.sum() + 1e-6)
-    
+    dice = (2.0 * intersection + 1e-6) / (preds_binary.sum() + targets_binary.sum() + 1e-6)
     union = (preds_binary | targets_binary).sum()
-    iou = intersection / (union + 1e-6)
-    
-    sens = intersection / (targets_binary.sum() + 1e-6)
-    
+    iou = (intersection + 1e-6) / (union + 1e-6)
+    sens = (intersection + 1e-6) / (targets_binary.sum() + 1e-6)
     tn = ((1 - preds_binary) & (1 - targets_binary)).sum()
-    spec = tn / ((1 - targets_binary).sum() + 1e-6)
+    spec = (tn + 1e-6) / ((1 - targets_binary).sum() + 1e-6)
     
     return {
         'accuracy': float(acc),
@@ -357,7 +406,7 @@ def compute_metrics(preds, targets, threshold=0.5):
     }
 
 # ============================================
-# FUNÇÕES DE TREINAMENTO COM TEMPO
+# FUNÇÕES DE TREINAMENTO
 # ============================================
 def train_epoch(model, train_loader, criterion, optimizer, device, measure_time=True):
     model.train()
@@ -390,14 +439,11 @@ def train_epoch(model, train_loader, criterion, optimizer, device, measure_time=
         
         running_loss += loss.item()
         
-        batch_metrics = compute_metrics(
-            outputs.detach(),
-            masks.detach()
-        )
+        batch_metrics = compute_metrics(outputs.detach(), masks.detach())
         for k in metrics:
             metrics[k] += batch_metrics[k]
         
-        progress_bar.set_postfix({'loss': loss.item()})
+        progress_bar.set_postfix({'loss': f'{loss.item():.4f}'})
     
     num_batches = len(train_loader)
     avg_loss = running_loss / num_batches
@@ -428,12 +474,12 @@ def validate_epoch(model, val_loader, criterion, device, measure_time=True):
     inference_times = []
     
     with torch.no_grad():
-        for images, masks in tqdm(val_loader, desc='Validation'):
+        progress_bar = tqdm(val_loader, desc='Validation')
+        for images, masks in progress_bar:
             if measure_time:
                 start_time = time.time()
             
             images, masks = images.to(device), masks.to(device)
-            
             outputs = model(images)
             loss = criterion(outputs, masks)
             
@@ -442,10 +488,7 @@ def validate_epoch(model, val_loader, criterion, device, measure_time=True):
             
             running_loss += loss.item()
             
-            batch_metrics = compute_metrics(
-                outputs,
-                masks
-            )
+            batch_metrics = compute_metrics(outputs, masks)
             for k in metrics:
                 metrics[k] += batch_metrics[k]
     
@@ -468,19 +511,22 @@ def validate_epoch(model, val_loader, criterion, device, measure_time=True):
     return avg_loss, metrics, time_metrics
 
 # ============================================
-# FUNÇÃO DE TREINAMENTO (COM SALVAMENTO DO MELHOR MODELO)
+# FUNÇÃO DE TREINAMENTO COM EARLY STOPPING
 # ============================================
 def train_model(model, train_loader, val_loader, config, run_id=0):
     criterion = DiceBCELoss()
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', 
+        patience=config.scheduler_patience, 
+        factor=config.scheduler_factor
+    )
     
     best_dice = 0.0
     best_epoch = 0
     patience_counter = 0
     stopped_epoch = config.epochs
     
-    # Guardar o melhor estado do modelo
     best_model_state = None
     
     history = {
@@ -495,7 +541,7 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
     print(f"\n🚀 Treinamento Run {run_id+1}/{config.n_runs} - {config.model_name}")
     print(f"Dispositivo: {config.device}")
     print(f"Tamanho da imagem: {config.img_size}x{config.img_size}")
-    print(f"Canais de entrada: {config.input_channels} (RGB)")
+    print(f"Modo de entrada: {config.input_mode} (1 canal)")
     print(f"Total de parâmetros: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Paciência: {config.patience} épocas")
     print(f"Épocas máximas: {config.epochs}")
@@ -534,12 +580,10 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
             print(f"⏱️  Validação: {val_time.get('epoch_total_time', 0):.2f}s | "
                   f"Inferência: {val_time.get('inference_time_mean', 0):.3f}s")
         
-        # Atualizar melhor modelo
         if val_metrics['dice'] > best_dice + config.min_delta:
             best_dice = val_metrics['dice']
             best_epoch = epoch
             patience_counter = 0
-            # Salvar o estado do melhor modelo
             best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             print(f"✅ Novo melhor Dice: {best_dice:.4f} (época {epoch+1})")
         else:
@@ -554,14 +598,13 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
     
     total_training_time = time.time() - training_start_time
     
-    # Salvar o melhor modelo no final do treinamento
+    # Salvar o melhor modelo
     if best_model_state is not None:
         model_path = os.path.join(models_dir, f'best_model_run_{run_id}.pth')
         torch.save(best_model_state, model_path)
         print(f"\n✅ Modelo da run {run_id} salvo em: {model_path}")
         print(f"   Melhor Dice: {best_dice:.4f} (época {best_epoch+1})")
     else:
-        # Se nenhum modelo melhor foi encontrado, salvar o modelo atual
         model_path = os.path.join(models_dir, f'final_model_run_{run_id}.pth')
         torch.save(model.state_dict(), model_path)
         print(f"\n⚠️ Nenhum modelo melhor encontrado, salvando modelo final em: {model_path}")
@@ -576,22 +619,17 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
         'model_path': model_path
     }
     
-    if config.save_results:
-        save_run_results_csv(history, run_id, config)
-    
     return history, best_dice
 
 # ============================================
 # FUNÇÃO PARA SALVAR RESULTADOS EM CSV
 # ============================================
 def save_run_results_csv(history, run_id, config):
-    """Salva os resultados de uma execução em CSV (métricas e tempo separados)"""
     run_dir = os.path.join(experiment_dir, f'run_{run_id}')
     os.makedirs(run_dir, exist_ok=True)
     
     epochs = list(range(1, len(history['train_loss']) + 1))
     
-    # ========== CSV 1: MÉTRICAS ==========
     metrics_data = {
         'epoch': epochs,
         'train_loss': history['train_loss'],
@@ -622,10 +660,7 @@ def save_run_results_csv(history, run_id, config):
     df_metrics.to_csv(metrics_csv_path, index=False)
     print(f"✅ Métricas salvas em: {metrics_csv_path}")
     
-    # ========== CSV 2: TEMPO ==========
-    time_data = {
-        'epoch': epochs,
-    }
+    time_data = {'epoch': epochs}
     
     if history['train_time'] and isinstance(history['train_time'][0], dict):
         for key in history['train_time'][0].keys():
@@ -642,12 +677,11 @@ def save_run_results_csv(history, run_id, config):
     df_time.to_csv(time_csv_path, index=False)
     print(f"✅ Tempo salvo em: {time_csv_path}")
     
-    # ========== CSV 3: RESUMO DA EXECUÇÃO ==========
     summary_data = {
         'run_id': run_id,
         'model_name': config.model_name,
         'img_size': config.img_size,
-        'input_channels': config.input_channels,
+        'input_mode': config.input_mode,
         'best_val_dice': history['early_stop']['best_dice'],
         'best_epoch': history['early_stop']['best_epoch'] + 1,
         'total_epochs': len(history['train_loss']),
@@ -672,119 +706,12 @@ def save_run_results_csv(history, run_id, config):
     return df_metrics, df_time, df_summary
 
 # ============================================
-# FUNÇÃO PARA CRIAR RELATÓRIO CONSOLIDADO FINAL
-# ============================================
-def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs):
-    """Cria um relatório consolidado final com todas as execuções"""
-    
-    # ========== RELATÓRIO CONSOLIDADO DE MÉTRICAS ==========
-    consolidated_metrics = pd.DataFrame()
-    for run_id, df in enumerate(all_metrics_dfs):
-        df_copy = df.copy()
-        df_copy.insert(0, 'run_id', run_id)
-        consolidated_metrics = pd.concat([consolidated_metrics, df_copy], ignore_index=True)
-    
-    metrics_consolidated_path = os.path.join(reports_dir, f'CONSOLIDADO_METRICAS_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    consolidated_metrics.to_csv(metrics_consolidated_path, index=False)
-    print(f"✅ Relatório consolidado de métricas salvo em: {metrics_consolidated_path}")
-    
-    # ========== RELATÓRIO CONSOLIDADO DE TEMPO ==========
-    consolidated_time = pd.DataFrame()
-    for run_id, df in enumerate(all_time_dfs):
-        df_copy = df.copy()
-        df_copy.insert(0, 'run_id', run_id)
-        consolidated_time = pd.concat([consolidated_time, df_copy], ignore_index=True)
-    
-    time_consolidated_path = os.path.join(reports_dir, f'CONSOLIDADO_TEMPO_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    consolidated_time.to_csv(time_consolidated_path, index=False)
-    print(f"✅ Relatório consolidado de tempo salvo em: {time_consolidated_path}")
-    
-    # ========== RELATÓRIO DE RESUMO DAS EXECUÇÕES ==========
-    summary_df = pd.DataFrame(all_run_summaries)
-    summary_consolidated_path = os.path.join(reports_dir, f'RESUMO_EXECUCOES_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    summary_df.to_csv(summary_consolidated_path, index=False)
-    print(f"✅ Resumo consolidado das execuções salvo em: {summary_consolidated_path}")
-    
-    # ========== ESTATÍSTICAS DESCRITIVAS ==========
-    final_metrics_cols = ['final_val_dice', 'final_val_loss', 'final_val_accuracy', 
-                          'final_val_iou', 'final_val_sensitivity', 'final_val_specificity']
-    
-    stats_data = {}
-    for col in final_metrics_cols:
-        if col in summary_df.columns:
-            stats_data[col] = {
-                'mean': summary_df[col].mean(),
-                'std': summary_df[col].std(),
-                'min': summary_df[col].min(),
-                'max': summary_df[col].max(),
-                'median': summary_df[col].median()
-            }
-    
-    time_cols = ['total_training_time']
-    for col in time_cols:
-        if col in summary_df.columns:
-            stats_data[col] = {
-                'mean': summary_df[col].mean(),
-                'std': summary_df[col].std(),
-                'min': summary_df[col].min(),
-                'max': summary_df[col].max(),
-                'median': summary_df[col].median()
-            }
-    
-    stats_data['best_val_dice'] = {
-        'mean': summary_df['best_val_dice'].mean(),
-        'std': summary_df['best_val_dice'].std(),
-        'min': summary_df['best_val_dice'].min(),
-        'max': summary_df['best_val_dice'].max(),
-        'median': summary_df['best_val_dice'].median()
-    }
-    
-    stats_df = pd.DataFrame(stats_data).T
-    stats_path = os.path.join(reports_dir, f'ESTATISTICAS_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    stats_df.to_csv(stats_path)
-    print(f"✅ Estatísticas descritivas salvas em: {stats_path}")
-    
-    # Exibir resumo
-    print("\n" + "="*70)
-    print("📊 RESUMO FINAL DAS EXECUÇÕES")
-    print("="*70)
-    print(f"\nModelo: {config.model_name}")
-    print(f"Número de execuções: {config.n_runs}")
-    print(f"Tamanho da imagem: {config.img_size}x{config.img_size}")
-    print(f"Canais de entrada: {config.input_channels} (RGB)")
-    print(f"Dispositivo: {config.device}")
-    print("\n📈 MÉTRICAS (Média ± Desvio Padrão):")
-    for col in ['best_val_dice', 'final_val_dice', 'final_val_iou', 'final_val_accuracy']:
-        if col in stats_df.index:
-            print(f"  {col}: {stats_df.loc[col, 'mean']:.4f} ± {stats_df.loc[col, 'std']:.4f}")
-    
-    print("\n⏱️ TEMPO (Média ± Desvio Padrão):")
-    if 'total_training_time' in stats_df.index:
-        print(f"  Tempo total de treinamento: {stats_df.loc['total_training_time', 'mean']:.2f}s ± {stats_df.loc['total_training_time', 'std']:.2f}s")
-    
-    print("\n📁 Arquivos gerados:")
-    print(f"  - {metrics_consolidated_path}")
-    print(f"  - {time_consolidated_path}")
-    print(f"  - {summary_consolidated_path}")
-    print(f"  - {stats_path}")
-    
-    return consolidated_metrics, consolidated_time, summary_df, stats_df
-
-# ============================================
-# FUNÇÃO DE TESTE DETALHADA
+# FUNÇÃO DE TESTE
 # ============================================
 def test_model_detailed(model, test_loader, device, run_id, config):
-    """
-    Testa o modelo e retorna métricas detalhadas incluindo:
-    - Métricas por imagem (tempo de predição, dice, iou, etc)
-    - Métricas agregadas (média, desvio padrão)
-    - Tempo total de teste
-    """
     model.eval()
-    
     per_image_metrics = []
     inference_times = []
-    all_metrics = []
     
     total_start_time = time.time()
     
@@ -808,15 +735,13 @@ def test_model_detailed(model, test_loader, device, run_id, config):
                 metrics = compute_metrics(pred, mask)
                 
                 if config.measure_time:
-                    per_image_inference_time = inference_time / images.size(0) if config.measure_time else 0
+                    per_image_inference_time = inference_time / images.size(0)
                     metrics['inference_time_per_image'] = float(per_image_inference_time)
                 else:
                     metrics['inference_time_per_image'] = 0.0
                 
                 metrics['image_index'] = idx * test_loader.batch_size + i
-                
                 per_image_metrics.append(metrics)
-                all_metrics.append(metrics)
     
     total_time = time.time() - total_start_time
     
@@ -860,13 +785,11 @@ def test_model_detailed(model, test_loader, device, run_id, config):
     return df_per_image, aggregated_metrics
 
 def test_model_average_detailed(config):
-    """
-    Testa todos os modelos treinados e calcula a média com métricas detalhadas
-    """
     test_dataset = FundusSegmentationDataset(
         config.test_images_dir,
         config.test_masks_dir,
-        img_size=config.img_size
+        img_size=config.img_size,
+        input_mode=config.input_mode
     )
     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=4)
     
@@ -876,15 +799,16 @@ def test_model_average_detailed(config):
     for run_id in range(config.n_runs):
         print(f"\n📈 Testando Run {run_id+1}/{config.n_runs}")
         
-        model = VGG19UNet(num_classes=1)
+        input_channels = 1
+        model = EfficientNetB0UNet(num_classes=1, pretrained=False, input_channels=input_channels)
         model_path = os.path.join(models_dir, f'best_model_run_{run_id}.pth')
         
-        # Se não encontrar o melhor modelo, tentar o modelo final
         if not os.path.exists(model_path):
             model_path = os.path.join(models_dir, f'final_model_run_{run_id}.pth')
         
         if os.path.exists(model_path):
-            model.load_state_dict(torch.load(model_path, map_location=config.device))
+            state_dict = torch.load(model_path, map_location=config.device)
+            model.load_state_dict(state_dict)
             model = model.to(config.device)
             
             df_per_image, aggregated_metrics = test_model_detailed(
@@ -953,31 +877,96 @@ def test_model_average_detailed(config):
     return None, None, None
 
 # ============================================
-# FUNÇÃO DE VISUALIZAÇÃO
+# FUNÇÃO PARA CRIAR RELATÓRIO CONSOLIDADO
 # ============================================
-def visualize_segmentation(images, masks, preds, idx):
-    fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs):
+    consolidated_metrics = pd.DataFrame()
+    for run_id, df in enumerate(all_metrics_dfs):
+        df_copy = df.copy()
+        df_copy.insert(0, 'run_id', run_id)
+        consolidated_metrics = pd.concat([consolidated_metrics, df_copy], ignore_index=True)
     
-    for i in range(min(4, len(images))):
-        img = images[i].permute(1, 2, 0).numpy()
-        axes[0, i].imshow(img)
-        axes[0, i].set_title(f'Original {idx*4+i+1}')
-        axes[0, i].axis('off')
-        
-        mask = masks[i].squeeze().numpy()
-        axes[1, i].imshow(mask, cmap='gray')
-        axes[1, i].set_title('Máscara Real')
-        axes[1, i].axis('off')
-        
-        pred = preds[i].squeeze().numpy()
-        pred_binary = (pred > 0.5).astype(np.float32)
-        axes[2, i].imshow(pred_binary, cmap='gray')
-        axes[2, i].set_title(f'Predição (Dice: {compute_metrics(pred, mask)["dice"]:.3f})')
-        axes[2, i].axis('off')
+    metrics_consolidated_path = os.path.join(reports_dir, f'CONSOLIDADO_METRICAS_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    consolidated_metrics.to_csv(metrics_consolidated_path, index=False)
+    print(f"✅ Relatório consolidado de métricas salvo em: {metrics_consolidated_path}")
     
-    plt.tight_layout()
-    plt.savefig(f'segmentation_results_{idx}.png')
-    plt.show()
+    consolidated_time = pd.DataFrame()
+    for run_id, df in enumerate(all_time_dfs):
+        df_copy = df.copy()
+        df_copy.insert(0, 'run_id', run_id)
+        consolidated_time = pd.concat([consolidated_time, df_copy], ignore_index=True)
+    
+    time_consolidated_path = os.path.join(reports_dir, f'CONSOLIDADO_TEMPO_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    consolidated_time.to_csv(time_consolidated_path, index=False)
+    print(f"✅ Relatório consolidado de tempo salvo em: {time_consolidated_path}")
+    
+    summary_df = pd.DataFrame(all_run_summaries)
+    summary_consolidated_path = os.path.join(reports_dir, f'RESUMO_EXECUCOES_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    summary_df.to_csv(summary_consolidated_path, index=False)
+    print(f"✅ Resumo consolidado das execuções salvo em: {summary_consolidated_path}")
+    
+    final_metrics_cols = ['final_val_dice', 'final_val_loss', 'final_val_accuracy', 
+                          'final_val_iou', 'final_val_sensitivity', 'final_val_specificity']
+    
+    stats_data = {}
+    for col in final_metrics_cols:
+        if col in summary_df.columns:
+            stats_data[col] = {
+                'mean': summary_df[col].mean(),
+                'std': summary_df[col].std(),
+                'min': summary_df[col].min(),
+                'max': summary_df[col].max(),
+                'median': summary_df[col].median()
+            }
+    
+    time_cols = ['total_training_time']
+    for col in time_cols:
+        if col in summary_df.columns:
+            stats_data[col] = {
+                'mean': summary_df[col].mean(),
+                'std': summary_df[col].std(),
+                'min': summary_df[col].min(),
+                'max': summary_df[col].max(),
+                'median': summary_df[col].median()
+            }
+    
+    stats_data['best_val_dice'] = {
+        'mean': summary_df['best_val_dice'].mean(),
+        'std': summary_df['best_val_dice'].std(),
+        'min': summary_df['best_val_dice'].min(),
+        'max': summary_df['best_val_dice'].max(),
+        'median': summary_df['best_val_dice'].median()
+    }
+    
+    stats_df = pd.DataFrame(stats_data).T
+    stats_path = os.path.join(reports_dir, f'ESTATISTICAS_{config.model_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    stats_df.to_csv(stats_path)
+    print(f"✅ Estatísticas descritivas salvas em: {stats_path}")
+    
+    print("\n" + "="*70)
+    print("📊 RESUMO FINAL DAS EXECUÇÕES")
+    print("="*70)
+    print(f"\nModelo: {config.model_name}")
+    print(f"Número de execuções: {config.n_runs}")
+    print(f"Tamanho da imagem: {config.img_size}x{config.img_size}")
+    print(f"Modo de entrada: {config.input_mode} (1 canal)")
+    print(f"Dispositivo: {config.device}")
+    print("\n📈 MÉTRICAS (Média ± Desvio Padrão):")
+    for col in ['best_val_dice', 'final_val_dice', 'final_val_iou', 'final_val_accuracy']:
+        if col in stats_df.index:
+            print(f"  {col}: {stats_df.loc[col, 'mean']:.4f} ± {stats_df.loc[col, 'std']:.4f}")
+    
+    print("\n⏱️ TEMPO (Média ± Desvio Padrão):")
+    if 'total_training_time' in stats_df.index:
+        print(f"  Tempo total de treinamento: {stats_df.loc['total_training_time', 'mean']:.2f}s ± {stats_df.loc['total_training_time', 'std']:.2f}s")
+    
+    print("\n📁 Arquivos gerados:")
+    print(f"  - {metrics_consolidated_path}")
+    print(f"  - {time_consolidated_path}")
+    print(f"  - {summary_consolidated_path}")
+    print(f"  - {stats_path}")
+    
+    return consolidated_metrics, consolidated_time, summary_df, stats_df
 
 # ============================================
 # FUNÇÃO PRINCIPAL
@@ -985,12 +974,13 @@ def visualize_segmentation(images, masks, preds, idx):
 def main():
     print("="*70)
     print(f"{' ' * 20}🚀 {config.model_name}")
-    print(f"{' ' * 15}Segmentação de Vasos em Fundoscopia (RGB)")
+    print(f"{' ' * 15}Segmentação de Vasos em Fundoscopia (Grayscale)")
     print("="*70)
     
     print(f"\n📊 CONFIGURAÇÕES:")
     print(f"  Device: {config.device}")
-    print(f"  Imagem: {config.img_size}x{config.img_size} (RGB)")
+    print(f"  Imagem: {config.img_size}x{config.img_size} (1 canal)")
+    print(f"  Modo de entrada: {config.input_mode}")
     print(f"  Execuções: {config.n_runs}")
     print(f"  Épocas máximas: {config.epochs}")
     print(f"  Paciência: {config.patience} épocas")
@@ -1000,13 +990,13 @@ def main():
     print(f"  💾 Modelos serão salvos no final do treinamento")
     print(f"  Diretório: {experiment_dir}")
     
-    # Preparar dados
     print("\n📂 Carregando dados...")
     try:
         full_dataset = FundusSegmentationDataset(
             config.train_images_dir, 
             config.train_masks_dir,
-            img_size=config.img_size
+            img_size=config.img_size,
+            input_mode=config.input_mode
         )
     except Exception as e:
         print(f"❌ Erro ao carregar dados: {e}")
@@ -1029,13 +1019,25 @@ def main():
         generator=torch.Generator().manual_seed(42)
     )
     
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=config.batch_size, 
+        shuffle=True, 
+        num_workers=config.num_workers,
+        pin_memory=config.pin_memory
+    )
     
-    print(f"  Treino: {len(train_dataset)} imagens (RGB)")
-    print(f"  Validação: {len(val_dataset)} imagens (RGB)")
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=config.batch_size, 
+        shuffle=False, 
+        num_workers=config.num_workers,
+        pin_memory=config.pin_memory
+    )
     
-    # Executar múltiplos treinamentos
+    print(f"  Treino: {len(train_dataset)} imagens (grayscale)")
+    print(f"  Validação: {len(val_dataset)} imagens (grayscale)")
+    
     all_histories = []
     all_best_dices = []
     all_training_times = []
@@ -1051,14 +1053,21 @@ def main():
         print(f"{'#'*70}")
         
         try:
-            model = VGG19UNet(num_classes=1, pretrained=True)
+            input_channels = 1
+            model = EfficientNetB0UNet(
+                num_classes=config.num_classes, 
+                pretrained=config.pretrained,
+                input_channels=input_channels
+            )
             model = model.to(config.device)
             
-            test_input = torch.randn(1, 3, 224, 224).to(config.device)
+            test_input = torch.randn(1, input_channels, 224, 224).to(config.device)
             test_output = model(test_input)
             print(f"✅ Teste forward pass - Input: {test_input.shape}, Output: {test_output.shape}")
         except Exception as e:
             print(f"❌ Erro ao criar modelo: {e}")
+            import traceback
+            traceback.print_exc()
             continue
         
         history, best_dice = train_model(model, train_loader, val_loader, config, run_id)
@@ -1068,7 +1077,6 @@ def main():
         run_total_time = time.time() - run_start_time
         all_training_times.append(run_total_time)
         
-        # Salvar resultados em CSV
         if config.save_results:
             df_metrics, df_time, df_summary = save_run_results_csv(history, run_id, config)
             all_metrics_dfs.append(df_metrics)
@@ -1080,14 +1088,12 @@ def main():
         del model
         torch.cuda.empty_cache()
     
-    # Criar relatório consolidado final
     if all_run_summaries and all_metrics_dfs and all_time_dfs:
         print("\n" + "="*70)
         print("📊 CRIANDO RELATÓRIO CONSOLIDADO FINAL")
         print("="*70)
         create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs)
     
-    # Calcular médias
     if all_best_dices:
         print("\n" + "="*70)
         print("📊 CALCULANDO MÉDIAS ENTRE EXECUÇÕES")
