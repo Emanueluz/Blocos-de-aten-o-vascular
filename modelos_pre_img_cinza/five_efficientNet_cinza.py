@@ -50,11 +50,11 @@ class Config:
     
     n_runs = 5
     save_results = True
-    results_dir = './results-cinza'
+    results_dir = './results_cinza'
     model_name = 'EfficientNetB0_UNet_cinza'
     experiment_name = f'{model_name}_{datetime.now().strftime("%d-%m-%Y_%H:%M:%S")}'
     
-    patience = 5
+    patience = 10
     min_delta = 0.001
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

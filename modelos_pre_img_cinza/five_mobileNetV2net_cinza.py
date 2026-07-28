@@ -55,7 +55,7 @@ class Config:
     model_name = 'MobileNetV2_UNet_cinza'
     experiment_name = f'{model_name}_{datetime.now().strftime("%d_%m_%d_%H:%M:%S")}'
     
-    patience = 5
+    patience = 10
     min_delta = 0.001
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

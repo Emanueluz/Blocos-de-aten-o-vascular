@@ -181,13 +181,14 @@ def main():
     # COLOQUE AQUI OS CAMINHOS DOS 6 CSVs QUE VOCÊ QUER PROCESSAR
     # ================================================================
     arquivos_csv = [
-        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_cinza/EfficientNetB0_UNet_cinza/dados_combinados_runs.csv",
-        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_cinza/MobileNetV2_UNet_cinza/dados_combinados_runs.csv",
-        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_cinza/ResNet101_UNet_cinza/dados_combinados_runs.csv",
-        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_cinza/SwinUNet_cinza/dados_combinados_runs.csv",
-        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_cinza/VGG19_UNet_cinza/dados_combinados_runs.csv",
-        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_cinza/ViTUNet_cinza/dados_combinados_runs.csv"
+        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_g_enhanced/EfficientNetB0_UNet_cinza/dados_combinados_runs.csv",
+        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_g_enhanced/MobileNetV2_UNet_cinza/dados_combinados_runs.csv",
+        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_g_enhanced/ResNet101_UNet_cinza/dados_combinados_runs.csv",
+        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_g_enhanced/SwinUNet_cinza/dados_combinados_runs.csv",
+        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_g_enhanced/VGG19_UNet_cinza/dados_combinados_runs.csv",
+        "/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/dados_combinados_g_enhanced/ViTUNet_cinza/dados_combinados_runs.csv"
     ]
+    nome_saida ='/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/medias_dados_treino_IMG-g_enhanced/media_dados_treino_dos_modelos-CINZA.csv'
     
     # Ou use glob para encontrar automaticamente
     # arquivos_csv = glob.glob("/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/results_cinza/*/RELATORIO_DAS_EXECUCOES/RESUMO_EXECUCOES_*.csv")
@@ -218,7 +219,6 @@ def main():
     
     
     
-    nome_saida ='/home/emanuel/Documentos/mestrado/treino dos modelos/analise_de_csv_dos_resultados/medias_dados_treino_IMG-CINZA/media_dados_treino_dos_modelos-CINZA.csv'
     
     if nome_saida == "":
         nome_saida = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
