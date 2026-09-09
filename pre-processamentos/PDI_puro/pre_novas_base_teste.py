@@ -39,7 +39,7 @@ def preprocessar_imagens(diretorio_entrada, diretorio_saida, extensoes=('.jpg', 
             _, img = cv2.threshold(img, 1, 255, cv2.THRESH_BINARY)
             
             # Monta o caminho de saída
-            nome_saida = f"processed_{nome_arquivo}"
+            nome_saida = f"{nome_arquivo}"
             caminho_saida = os.path.join(diretorio_saida, nome_saida)
             
             # Salva a imagem processada
@@ -52,6 +52,6 @@ def preprocessar_imagens(diretorio_entrada, diretorio_saida, extensoes=('.jpg', 
     
     print(f"\nProcessamento concluído! Imagens salvas em: {diretorio_saida}")
 
-entrada= '/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg/annotation/'
-saida='/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg/annotation_b'
+entrada= '/home/emanuel/Documentos/mestrado/bases de dados/RETA/images/train/Original/'
+saida='/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg/Ground truth'
 preprocessar_imagens(entrada,saida)

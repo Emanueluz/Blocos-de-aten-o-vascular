@@ -42,31 +42,40 @@ class Config:
         for test_dir in args.test_dirs:
             test_dir = test_dir.strip()
             
-            images_path = None
-            masks_path = None
+            # Verificar se o diretório está no formato "imagens:mascaras"
+            if ':' in test_dir:
+                images_path, masks_path = test_dir.split(':', 1)
+                images_path = images_path.strip()
+                masks_path = masks_path.strip()
+                dataset_name = os.path.basename(images_path)
+            else:
+                # Formato antigo - tentar detectar estrutura
+                images_path = None
+                masks_path = None
+                
+                possible_structures = [
+                    ('Original', 'Ground truth'),
+                    ('images', 'masks'),
+                    ('img', 'mask'),
+                    ('image', 'mask'),
+                    ('cinza', 'Ground truth'),
+                    ('gray', 'Ground truth'),
+                ]
+                
+                for img_sub, mask_sub in possible_structures:
+                    img_check = os.path.join(test_dir, img_sub)
+                    mask_check = os.path.join(test_dir, mask_sub)
+                    if os.path.exists(img_check) and os.path.exists(mask_check):
+                        images_path = img_check
+                        masks_path = mask_check
+                        break
+                
+                if images_path is None or masks_path is None:
+                    images_path = test_dir
+                    masks_path = test_dir
+                
+                dataset_name = os.path.basename(test_dir)
             
-            possible_structures = [
-                ('Original', 'Ground truth'),
-                ('images', 'masks'),
-                ('img', 'mask'),
-                ('image', 'mask'),
-                ('cinza', 'Ground truth'),
-                ('gray', 'Ground truth'),
-            ]
-            
-            for img_sub, mask_sub in possible_structures:
-                img_check = os.path.join(test_dir, img_sub)
-                mask_check = os.path.join(test_dir, mask_sub)
-                if os.path.exists(img_check) and os.path.exists(mask_check):
-                    images_path = img_check
-                    masks_path = mask_check
-                    break
-            
-            if images_path is None or masks_path is None:
-                images_path = test_dir
-                masks_path = test_dir
-            
-            dataset_name = os.path.basename(test_dir)
             self.test_datasets.append({
                 'name': dataset_name,
                 'images_dir': images_path,
@@ -147,11 +156,15 @@ def convert_to_serializable(obj):
         return obj
 
 # ============================================
-# MODELO VGG19UNet para GRAYSCALE
+# MODELO VGG19UNet para GRAYSCALE (CORRIGIDO)
 # ============================================
 class VGG19UNet(nn.Module):
     def __init__(self, num_classes=1, pretrained=True, input_channels=1):
         super().__init__()
+        
+        # 🔧 CORREÇÃO: Adicionar os atributos que serão usados no forward
+        self.input_channels = input_channels
+        self.num_classes = num_classes
 
         vgg = models.vgg19(
             weights=models.VGG19_Weights.IMAGENET1K_V1 if pretrained else None
@@ -159,7 +172,7 @@ class VGG19UNet(nn.Module):
 
         features = list(vgg.features)
         
-        # Modificar primeira convolução para 1 canal
+        # Modificar primeira convolução para o número correto de canais
         first_conv = features[0]
         new_conv = nn.Conv2d(
             in_channels=input_channels,
@@ -170,33 +183,39 @@ class VGG19UNet(nn.Module):
             bias=first_conv.bias is not None
         )
         
-        if pretrained:
+        if pretrained and input_channels == 1:
+            # Para grayscale: fazer a média dos pesos RGB
             with torch.no_grad():
                 original_weights = first_conv.weight
                 new_weights = original_weights.mean(dim=1, keepdim=True)
                 new_conv.weight.data = new_weights
                 if first_conv.bias is not None:
                     new_conv.bias.data = first_conv.bias.data
+        elif pretrained and input_channels == 3:
+            # Para RGB: usar os pesos originais
+            new_conv.weight.data = first_conv.weight.data
+            if first_conv.bias is not None:
+                new_conv.bias.data = first_conv.bias.data
         else:
             new_conv.reset_parameters()
         
         features[0] = new_conv
         features = nn.Sequential(*features)
 
-        # Encoder
-        self.enc1 = nn.Sequential(*features[0:4])
+        # Encoder (VGG19)
+        self.enc1 = nn.Sequential(*features[0:4])   # conv1_1, conv1_2
         self.pool1 = nn.MaxPool2d(2, 2)
 
-        self.enc2 = nn.Sequential(*features[5:9])
+        self.enc2 = nn.Sequential(*features[5:9])   # conv2_1, conv2_2
         self.pool2 = nn.MaxPool2d(2, 2)
 
-        self.enc3 = nn.Sequential(*features[10:18])
+        self.enc3 = nn.Sequential(*features[10:18]) # conv3_1, conv3_2, conv3_3, conv3_4
         self.pool3 = nn.MaxPool2d(2, 2)
 
-        self.enc4 = nn.Sequential(*features[19:27])
+        self.enc4 = nn.Sequential(*features[19:27]) # conv4_1, conv4_2, conv4_3, conv4_4
         self.pool4 = nn.MaxPool2d(2, 2)
 
-        self.enc5 = nn.Sequential(*features[28:36])
+        self.enc5 = nn.Sequential(*features[28:36]) # conv5_1, conv5_2, conv5_3, conv5_4
 
         # Center
         self.center = nn.Sequential(
@@ -244,12 +263,19 @@ class VGG19UNet(nn.Module):
     def forward(self, x):
         # Garantir que a entrada tem o número correto de canais
         if x.shape[1] != self.input_channels:
-            raise ValueError(f"Esperado {self.input_channels} canais, recebeu {x.shape[1]}")
+            # Tentar converter automaticamente se possível
+            if x.shape[1] == 3 and self.input_channels == 1:
+                x = x.mean(dim=1, keepdim=True)
+            elif x.shape[1] == 1 and self.input_channels == 3:
+                x = x.repeat(1, 3, 1, 1)
+            else:
+                raise ValueError(f"Esperado {self.input_channels} canais, recebeu {x.shape[1]}")
         
-        # Ajustar tamanho se necessário para VGG19
+        # Ajustar tamanho se necessário para VGG19 (entrada espera 224x224)
         if x.shape[2] != 224 or x.shape[3] != 224:
             x = nn.functional.interpolate(x, size=(224, 224), mode='bilinear', align_corners=False)
         
+        # Encoder
         e1 = self.enc1(x)
         p1 = self.pool1(e1)
 
@@ -264,8 +290,10 @@ class VGG19UNet(nn.Module):
 
         e5 = self.enc5(p4)
 
+        # Center
         center = self.center(e5)
 
+        # Decoder com skip connections
         d5 = self.up5(center)
         if d5.shape[2:] != e4.shape[2:]:
             d5 = nn.functional.interpolate(d5, size=e4.shape[2:], mode='bilinear', align_corners=False)
@@ -1104,7 +1132,7 @@ def parse_args():
     # Argumentos obrigatórios
     parser.add_argument('--train_images_dir', required=True, help='Diretorio com imagens de treino')
     parser.add_argument('--train_masks_dir', required=True, help='Diretorio com mascaras de treino')
-    parser.add_argument('--test_dirs', nargs='+', required=True, help='Diretorios das bases de teste')
+    parser.add_argument('--test_dirs', nargs='+', required=True, help='Diretorios das bases de teste (formato: imagens:mascaras)')
     
     # Argumentos do modelo
     parser.add_argument('--num_classes', type=int, default=1, help='Numero de classes (padrao: 1)')

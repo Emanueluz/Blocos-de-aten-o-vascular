@@ -13,12 +13,7 @@ DIRETORIO_ENTRADA = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test
 # DIRETÓRIOS DE SAÍDA SEPARADOS (cada um é um diretório raiz)
 DIRETORIO_gray_enhanced =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/gray_enhanced"
 DIRETORIO_G =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/canal_G"
-DIRETORIO_B =          "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/canal_B" 
-DIRETORIO_MEDIA =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/media"
-DIRETORIO_MAX =        "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/max"
-DIRETORIO_SOMA =       "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/soma"
-DIRETORIO_CANNY =      "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/canny"
-DIRETORIO_EQUALIZADO = "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/equalizado"
+ 
 
 # Extensões de imagem suportadas
 EXTENSOES = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif')
@@ -76,36 +71,7 @@ def processar_imagem(caminho_imagem):
     # Depois: combinar com G
     gray_enhanced = cv2.addWeighted(g, 0.6, rb_combined, 0.4, 0)  # 0.6 + 0.4 = 1.0
 
-    '''
-    # Processar cada canal
-    sobel_r = sobel_completo_canal(r)
-    sobel_g = sobel_completo_canal(g)
-    sobel_b = sobel_completo_canal(b)
-    
-    # Método 1: Média dos 3 canais
-    sobel_media = cv2.addWeighted(
-        cv2.addWeighted(sobel_r, 0.33, sobel_g, 0.33, 0),
-        1.0, sobel_b, 0.34, 0
-    )
-    
-    # Método 2: Máximo dos 3 canais
-    sobel_max = np.maximum(
-        np.maximum(sobel_r, sobel_g),
-        sobel_b
-    )
-    
-    # Método 3: Soma normalizada
-    sobel_soma = cv2.add(cv2.add(sobel_r, sobel_g), sobel_b)
-    sobel_soma = cv2.normalize(sobel_soma, None, 0, 255, cv2.NORM_MINMAX)
-    
-    # Método 4: Soma suavizada + Canny
-    sobel_soma_suavizado = cv2.bilateralFilter(sobel_soma, 9, 90, 90)
-    sobel_canny = cv2.Canny(sobel_soma_suavizado, threshold1=30, threshold2=70)
-    
-    # Método 5: Soma equalizada
-    sobel_soma_equalizado = cv2.equalizeHist(sobel_soma)
-    '''
-    # Nome base do arquivo
+ 
     nome_base = Path(caminho_imagem).stem
     
     # ============================================================
@@ -132,23 +98,7 @@ def processar_imagem(caminho_imagem):
     # Salvar canal G
     cv2.imwrite(os.path.join(DIRETORIO_G, f"{nome_base}.png"), g)
     
-    # Salvar canal B
-    #cv2.imwrite(os.path.join(DIRETORIO_B, f"{nome_base}.png"), sobel_b)
-    
-    # Salvar média
-    #cv2.imwrite(os.path.join(DIRETORIO_MEDIA, f"{nome_base}.png"), sobel_media)
-    
-    # Salvar máximo
-    #cv2.imwrite(os.path.join(DIRETORIO_MAX, f"{nome_base}.png"), sobel_max)
-    
-    # Salvar soma
-    #cv2.imwrite(os.path.join(DIRETORIO_SOMA, f"{nome_base}.png"), sobel_soma)
-    
-    # Salvar Canny
-    #cv2.imwrite(os.path.join(DIRETORIO_CANNY, f"{nome_base}.png"), sobel_canny)
-    
-    # Salvar equalizado
-    #cv2.imwrite(os.path.join(DIRETORIO_EQUALIZADO, f"{nome_base}.png"), sobel_soma_equalizado)
+ 
     
     return True
 
@@ -180,12 +130,7 @@ def processar_diretorio(diretorio_entrada):
     print("📂 Diretórios de saída:")
     print(f"   ├── {DIRETORIO_gray_enhanced}")
     print(f"   ├── {DIRETORIO_G}")
-    print(f"   ├── {DIRETORIO_B}")
-    print(f"   ├── {DIRETORIO_MEDIA}")
-    print(f"   ├── {DIRETORIO_MAX}")
-    print(f"   ├── {DIRETORIO_SOMA}")
-    print(f"   ├── {DIRETORIO_CANNY}")
-    print(f"   └── {DIRETORIO_EQUALIZADO}")
+ 
     print()
     
     # Processar cada imagem
@@ -216,12 +161,7 @@ def processar_diretorio(diretorio_entrada):
     print(f"\n📁 Resultados salvos em diretórios separados:")
     print(f"   - Canal R: {DIRETORIO_gray_enhanced}")
     print(f"   - Canal G: {DIRETORIO_G}")
-    print(f"   - Canal B: {DIRETORIO_B}")
-    print(f"   - Média: {DIRETORIO_MEDIA}")
-    print(f"   - Máximo: {DIRETORIO_MAX}")
-    print(f"   - Soma: {DIRETORIO_SOMA}")
-    print(f"   - Canny: {DIRETORIO_CANNY}")
-    print(f"   - Equalizado: {DIRETORIO_EQUALIZADO}")
+  
 
 
 # ============================================================

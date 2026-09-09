@@ -14,14 +14,20 @@ TRAIN_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_pur
 TRAIN_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Ground truth"
 
 # --- DIRETÓRIOS DE TESTE (GRAYSCALE) ---
-TEST_BASES=(
-    "/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/cinza"
-    "/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg"
-    "/home/emanuel/Documentos/mestrado/bases de dados/RETA/images/test"
-)
+# TESTE 1: FIVES
+TEST1_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/cinza"
+TEST1_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test/Ground truth"
+
+# TESTE 2: Fundus-AVSeg
+TEST2_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg/PDI_puro/gray"
+TEST2_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg/Ground truth"
+
+# TESTE 3: RETA
+TEST3_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/RETA/images/train/PDI_puro/gray"
+TEST3_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/RETA/images/train/Ground truth"
 
 # --- DIRETÓRIO DE RESULTADOS ---
-BASE_RESULTS_DIR="./results_all_models_grayscale"
+BASE_RESULTS_DIR="./results_cinza"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # ============================================
@@ -42,7 +48,7 @@ BATCH_RESNET=16
 LR_RESNET=0.001
 
 BATCH_SWIN=4
-LR_SWIN=0.0001
+LR_SWIN=0.001
 
 BATCH_VGG=16
 LR_VGG=0.001
@@ -127,43 +133,96 @@ check_directories() {
     # Verificar diretórios de teste
     echo ""
     echo "📂 Diretórios de TESTE (GRAYSCALE):"
-    for test_dir in "${TEST_BASES[@]}"; do
-        echo ""
-        echo "  📁 $(basename "${test_dir}"):"
-        echo "     Path: ${test_dir}"
-        
-        if [ ! -d "${test_dir}" ]; then
-            echo "     ❌ Diretório não encontrado!"
+    
+    # Teste 1
+    echo ""
+    echo "  📁 TESTE 1 - FIVES:"
+    echo "     Imagens: ${TEST1_IMAGES_DIR}"
+    echo "     Máscaras: ${TEST1_MASKS_DIR}"
+    
+    if [ ! -d "${TEST1_IMAGES_DIR}" ]; then
+        echo "     ❌ Diretório de imagens não encontrado!"
+        has_error=1
+    else
+        local count=$(ls -1 "${TEST1_IMAGES_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+        echo "     ✅ Imagens: ${count} arquivos"
+        if [ ${count} -eq 0 ]; then
+            echo "     ⚠️  ATENÇÃO: Nenhuma imagem encontrada!"
             has_error=1
-            continue
         fi
-        
-        # Verificar estruturas comuns
-        if [ -d "${test_dir}/Original" ] && [ -d "${test_dir}/Ground truth" ]; then
-            echo "     ✅ Estrutura: Original + Ground truth"
-            echo "        Imagens: $(ls -1 "${test_dir}/Original" 2>/dev/null | wc -l) arquivos"
-            echo "        Máscaras: $(ls -1 "${test_dir}/Ground truth" 2>/dev/null | wc -l) arquivos"
-        elif [ -d "${test_dir}/images" ] && [ -d "${test_dir}/masks" ]; then
-            echo "     ✅ Estrutura: images + masks"
-            echo "        Imagens: $(ls -1 "${test_dir}/images" 2>/dev/null | wc -l) arquivos"
-            echo "        Máscaras: $(ls -1 "${test_dir}/masks" 2>/dev/null | wc -l) arquivos"
-        elif [ -d "${test_dir}/img" ] && [ -d "${test_dir}/mask" ]; then
-            echo "     ✅ Estrutura: img + mask"
-            echo "        Imagens: $(ls -1 "${test_dir}/img" 2>/dev/null | wc -l) arquivos"
-            echo "        Máscaras: $(ls -1 "${test_dir}/mask" 2>/dev/null | wc -l) arquivos"
-        elif [ -d "${test_dir}/cinza" ] && [ -d "${test_dir}/Ground truth" ]; then
-            echo "     ✅ Estrutura: cinza + Ground truth"
-            echo "        Imagens: $(ls -1 "${test_dir}/cinza" 2>/dev/null | wc -l) arquivos"
-            echo "        Máscaras: $(ls -1 "${test_dir}/Ground truth" 2>/dev/null | wc -l) arquivos"
-        else
-            echo "     ⚠️  Estrutura não reconhecida"
-            # Tentar encontrar arquivos
-            local files=$(ls -1 "${test_dir}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | head -3)
-            if [ -n "${files}" ]; then
-                echo "        Total de arquivos de imagem: $(ls -1 "${test_dir}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)"
-            fi
+    fi
+    
+    if [ ! -d "${TEST1_MASKS_DIR}" ]; then
+        echo "     ❌ Diretório de máscaras não encontrado!"
+        has_error=1
+    else
+        local count=$(ls -1 "${TEST1_MASKS_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+        echo "     ✅ Máscaras: ${count} arquivos"
+        if [ ${count} -eq 0 ]; then
+            echo "     ⚠️  ATENÇÃO: Nenhuma máscara encontrada!"
+            has_error=1
         fi
-    done
+    fi
+    
+    # Teste 2
+    echo ""
+    echo "  📁 TESTE 2 - Fundus-AVSeg:"
+    echo "     Imagens: ${TEST2_IMAGES_DIR}"
+    echo "     Máscaras: ${TEST2_MASKS_DIR}"
+    
+    if [ ! -d "${TEST2_IMAGES_DIR}" ]; then
+        echo "     ❌ Diretório de imagens não encontrado!"
+        has_error=1
+    else
+        local count=$(ls -1 "${TEST2_IMAGES_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+        echo "     ✅ Imagens: ${count} arquivos"
+        if [ ${count} -eq 0 ]; then
+            echo "     ⚠️  ATENÇÃO: Nenhuma imagem encontrada!"
+            has_error=1
+        fi
+    fi
+    
+    if [ ! -d "${TEST2_MASKS_DIR}" ]; then
+        echo "     ❌ Diretório de máscaras não encontrado!"
+        has_error=1
+    else
+        local count=$(ls -1 "${TEST2_MASKS_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+        echo "     ✅ Máscaras: ${count} arquivos"
+        if [ ${count} -eq 0 ]; then
+            echo "     ⚠️  ATENÇÃO: Nenhuma máscara encontrada!"
+            has_error=1
+        fi
+    fi
+    
+    # Teste 3
+    echo ""
+    echo "  📁 TESTE 3 - RETA:"
+    echo "     Imagens: ${TEST3_IMAGES_DIR}"
+    echo "     Máscaras: ${TEST3_MASKS_DIR}"
+    
+    if [ ! -d "${TEST3_IMAGES_DIR}" ]; then
+        echo "     ❌ Diretório de imagens não encontrado!"
+        has_error=1
+    else
+        local count=$(ls -1 "${TEST3_IMAGES_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+        echo "     ✅ Imagens: ${count} arquivos"
+        if [ ${count} -eq 0 ]; then
+            echo "     ⚠️  ATENÇÃO: Nenhuma imagem encontrada!"
+            has_error=1
+        fi
+    fi
+    
+    if [ ! -d "${TEST3_MASKS_DIR}" ]; then
+        echo "     ❌ Diretório de máscaras não encontrado!"
+        has_error=1
+    else
+        local count=$(ls -1 "${TEST3_MASKS_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+        echo "     ✅ Máscaras: ${count} arquivos"
+        if [ ${count} -eq 0 ]; then
+            echo "     ⚠️  ATENÇÃO: Nenhuma máscara encontrada!"
+            has_error=1
+        fi
+    fi
     
     # Verificar diretório de resultados
     echo ""
@@ -212,17 +271,24 @@ run_model() {
         return 1
     fi
     
-    # Construir lista de diretórios de teste
-    local test_dirs=""
-    for test_dir in "${TEST_BASES[@]}"; do
-        test_dirs="${test_dirs} \"${test_dir}\""
-    done
+    # Construir lista de diretórios de teste no formato imagem:máscara
+    # para passar para --test_dirs
+    TEST_DIRS_ARGS=""
     
-    # Construir comando completo
+    # Teste 1: FIVES
+    TEST_DIRS_ARGS="${TEST_DIRS_ARGS} \"${TEST1_IMAGES_DIR}:${TEST1_MASKS_DIR}\""
+    
+    # Teste 2: Fundus-AVSeg
+    TEST_DIRS_ARGS="${TEST_DIRS_ARGS} \"${TEST2_IMAGES_DIR}:${TEST2_MASKS_DIR}\""
+    
+    # Teste 3: RETA
+    TEST_DIRS_ARGS="${TEST_DIRS_ARGS} \"${TEST3_IMAGES_DIR}:${TEST3_MASKS_DIR}\""
+    
+    # Construir comando completo usando --test_dirs
     local CMD="${PYTHON_CMD} \"${script_path}\" \
         --train_images_dir \"${TRAIN_IMAGES_DIR}\" \
         --train_masks_dir \"${TRAIN_MASKS_DIR}\" \
-        --test_dirs ${test_dirs} \
+        --test_dirs ${TEST_DIRS_ARGS} \
         --input_mode grayscale \
         --epochs ${EPOCHS} \
         --n_runs ${RUNS} \
@@ -300,12 +366,12 @@ fi
 
 # Formato: "Nome_do_Modelo" "caminho/do/script.py" batch_size learning_rate
 MODELS=(
-    "EfficientNetB0_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_img_originais/efficientnet_grayscale_segmentation.py" ${BATCH_EFFICIENTNET} ${LR_EFFICIENTNET}
-    "ResNet101_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_img_originais/resnet101_grayscale_segmentation.py" ${BATCH_RESNET} ${LR_RESNET}
-    "SwinUNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_img_originais/swinunet_grayscale_segmentation.py" ${BATCH_SWIN} ${LR_SWIN}
-    "VGG19_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_img_originais/vgg19_grayscale_segmentation.py" ${BATCH_VGG} ${LR_VGG}
-    "ViTUNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_img_originais/vit_grayscale_segmentation.py" ${BATCH_VIT} ${LR_VIT}
-    "MobileNetV2_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_img_originais/mobilenetv2_grayscale_segmentation.py" ${BATCH_MOBILENET} ${LR_MOBILENET}
+    "EfficientNetB0_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_efficientNet_cinza.py" ${BATCH_EFFICIENTNET} ${LR_EFFICIENTNET}
+    "ResNet101_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_resnet101_cinza.py" ${BATCH_RESNET} ${LR_RESNET}
+    "SwinUNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_swin_cinza.py" ${BATCH_SWIN} ${LR_SWIN}
+    "VGG19_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_vgg19_cinza.py" ${BATCH_VGG} ${LR_VGG}
+    "ViTUNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_vit_cinza.py" ${BATCH_VIT} ${LR_VIT}
+    "MobileNetV2_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_mobileNetV2net_cinza.py" ${BATCH_MOBILENET} ${LR_MOBILENET}
 )
 
 # Verificar se os scripts existem
