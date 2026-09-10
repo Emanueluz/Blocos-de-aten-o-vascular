@@ -4,6 +4,25 @@
 # SCRIPT PARA EXECUTAR TODOS OS MODELOS (GRAYSCALE)
 # Segmentação de Vasos em Fundoscopia
 # ============================================
+# Estrutura de saída por modelo:
+#   <results_dir>/
+#     ├── saved_models/
+#     ├── run_0/ ... run_N/
+#     ├── test_results/
+#     │    ├── FIVES/                      <- relatórios independentes
+#     │    │    ├── REPORT.txt
+#     │    │    ├── aggregated_metrics_summary.csv
+#     │    │    ├── aggregated_statistics_summary.csv
+#     │    │    └── consolidated_per_image_metrics.csv
+#     │    ├── Fundus-AVSeg/               <- relatórios independentes
+#     │    │    └── ...
+#     │    ├── RETA/                       <- relatórios independentes
+#     │    │    └── ...
+#     │    └── COMPARATIVO_ENTRE_BASES/    <- comparativo geral
+#     │         ├── comparativo_entre_bases.csv
+#     │         ├── COMPARATIVO_ENTRE_BASES.txt
+#     │         └── comparativo_entre_bases.png
+# ============================================
 
 # ============================================
 # CONFIGURAÇÕES DOS DIRETÓRIOS
@@ -14,15 +33,22 @@ TRAIN_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_pur
 TRAIN_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/train/Ground truth"
 
 # --- DIRETÓRIOS DE TESTE (GRAYSCALE) ---
+# Cada base de teste será passada separadamente para o script Python
+# no formato: "<imagens>:<mascaras>"
+# Assim o Python gera relatórios SEPARADOS por base + comparativo final.
+
 # TESTE 1: FIVES
+TEST1_NAME="FIVES"
 TEST1_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/PDI_puro/test/cinza"
 TEST1_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/FIVES/test/Ground truth"
 
 # TESTE 2: Fundus-AVSeg
+TEST2_NAME="Fundus-AVSeg"
 TEST2_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg/PDI_puro/gray"
 TEST2_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/Fundus-AVSeg/Ground truth"
 
 # TESTE 3: RETA
+TEST3_NAME="RETA"
 TEST3_IMAGES_DIR="/home/emanuel/Documentos/mestrado/bases de dados/RETA/images/train/PDI_puro/gray"
 TEST3_MASKS_DIR="/home/emanuel/Documentos/mestrado/bases de dados/RETA/images/train/Ground truth"
 
@@ -63,7 +89,6 @@ LR_MOBILENET=0.001
 # CONFIGURAÇÃO DO PYTHON
 # ============================================
 
-# Detectar comando Python disponível
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &> /dev/null; then
@@ -79,7 +104,6 @@ echo "✅ Usando Python: ${PYTHON_CMD} ($(${PYTHON_CMD} --version))"
 # FUNÇÕES AUXILIARES
 # ============================================
 
-# Função para imprimir cabeçalho
 print_header() {
     local model=$1
     local total=$2
@@ -101,17 +125,14 @@ check_directories() {
     
     local has_error=0
     
-    # Verificar diretórios de treino
+    # -------- TREINO --------
     echo ""
     echo "📂 Diretórios de TREINO (GRAYSCALE):"
     if [ -d "${TRAIN_IMAGES_DIR}" ]; then
         local count=$(ls -1 "${TRAIN_IMAGES_DIR}" 2>/dev/null | wc -l)
         echo "  ✅ Imagens: ${TRAIN_IMAGES_DIR}"
         echo "     ${count} arquivos encontrados"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma imagem encontrada!"
-            has_error=1
-        fi
+        [ ${count} -eq 0 ] && { echo "     ⚠️  Nenhuma imagem encontrada!"; has_error=1; }
     else
         echo "  ❌ ERRO: Imagens não encontrado: ${TRAIN_IMAGES_DIR}"
         has_error=1
@@ -121,110 +142,41 @@ check_directories() {
         local count=$(ls -1 "${TRAIN_MASKS_DIR}" 2>/dev/null | wc -l)
         echo "  ✅ Máscaras: ${TRAIN_MASKS_DIR}"
         echo "     ${count} arquivos encontrados"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma máscara encontrada!"
-            has_error=1
-        fi
+        [ ${count} -eq 0 ] && { echo "     ⚠️  Nenhuma máscara encontrada!"; has_error=1; }
     else
         echo "  ❌ ERRO: Máscaras não encontrado: ${TRAIN_MASKS_DIR}"
         has_error=1
     fi
     
-    # Verificar diretórios de teste
+    # -------- TESTES --------
     echo ""
-    echo "📂 Diretórios de TESTE (GRAYSCALE):"
+    echo "📂 Diretórios de TESTE (GRAYSCALE) — cada base gera relatório SEPARADO:"
     
     # Teste 1
     echo ""
-    echo "  📁 TESTE 1 - FIVES:"
-    echo "     Imagens: ${TEST1_IMAGES_DIR}"
+    echo "  📁 TESTE 1 - ${TEST1_NAME}:"
+    echo "     Imagens:  ${TEST1_IMAGES_DIR}"
     echo "     Máscaras: ${TEST1_MASKS_DIR}"
-    
-    if [ ! -d "${TEST1_IMAGES_DIR}" ]; then
-        echo "     ❌ Diretório de imagens não encontrado!"
-        has_error=1
-    else
-        local count=$(ls -1 "${TEST1_IMAGES_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
-        echo "     ✅ Imagens: ${count} arquivos"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma imagem encontrada!"
-            has_error=1
-        fi
-    fi
-    
-    if [ ! -d "${TEST1_MASKS_DIR}" ]; then
-        echo "     ❌ Diretório de máscaras não encontrado!"
-        has_error=1
-    else
-        local count=$(ls -1 "${TEST1_MASKS_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
-        echo "     ✅ Máscaras: ${count} arquivos"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma máscara encontrada!"
-            has_error=1
-        fi
-    fi
+    check_test_dir "${TEST1_IMAGES_DIR}" "${TEST1_MASKS_DIR}" "imagens" "máscaras"
+    [ $? -ne 0 ] && has_error=1
     
     # Teste 2
     echo ""
-    echo "  📁 TESTE 2 - Fundus-AVSeg:"
-    echo "     Imagens: ${TEST2_IMAGES_DIR}"
+    echo "  📁 TESTE 2 - ${TEST2_NAME}:"
+    echo "     Imagens:  ${TEST2_IMAGES_DIR}"
     echo "     Máscaras: ${TEST2_MASKS_DIR}"
-    
-    if [ ! -d "${TEST2_IMAGES_DIR}" ]; then
-        echo "     ❌ Diretório de imagens não encontrado!"
-        has_error=1
-    else
-        local count=$(ls -1 "${TEST2_IMAGES_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
-        echo "     ✅ Imagens: ${count} arquivos"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma imagem encontrada!"
-            has_error=1
-        fi
-    fi
-    
-    if [ ! -d "${TEST2_MASKS_DIR}" ]; then
-        echo "     ❌ Diretório de máscaras não encontrado!"
-        has_error=1
-    else
-        local count=$(ls -1 "${TEST2_MASKS_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
-        echo "     ✅ Máscaras: ${count} arquivos"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma máscara encontrada!"
-            has_error=1
-        fi
-    fi
+    check_test_dir "${TEST2_IMAGES_DIR}" "${TEST2_MASKS_DIR}" "imagens" "máscaras"
+    [ $? -ne 0 ] && has_error=1
     
     # Teste 3
     echo ""
-    echo "  📁 TESTE 3 - RETA:"
-    echo "     Imagens: ${TEST3_IMAGES_DIR}"
+    echo "  📁 TESTE 3 - ${TEST3_NAME}:"
+    echo "     Imagens:  ${TEST3_IMAGES_DIR}"
     echo "     Máscaras: ${TEST3_MASKS_DIR}"
+    check_test_dir "${TEST3_IMAGES_DIR}" "${TEST3_MASKS_DIR}" "imagens" "máscaras"
+    [ $? -ne 0 ] && has_error=1
     
-    if [ ! -d "${TEST3_IMAGES_DIR}" ]; then
-        echo "     ❌ Diretório de imagens não encontrado!"
-        has_error=1
-    else
-        local count=$(ls -1 "${TEST3_IMAGES_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
-        echo "     ✅ Imagens: ${count} arquivos"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma imagem encontrada!"
-            has_error=1
-        fi
-    fi
-    
-    if [ ! -d "${TEST3_MASKS_DIR}" ]; then
-        echo "     ❌ Diretório de máscaras não encontrado!"
-        has_error=1
-    else
-        local count=$(ls -1 "${TEST3_MASKS_DIR}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
-        echo "     ✅ Máscaras: ${count} arquivos"
-        if [ ${count} -eq 0 ]; then
-            echo "     ⚠️  ATENÇÃO: Nenhuma máscara encontrada!"
-            has_error=1
-        fi
-    fi
-    
-    # Verificar diretório de resultados
+    # -------- RESULTADOS --------
     echo ""
     echo "📂 Diretório de RESULTADOS:"
     echo "  📁 ${BASE_RESULTS_DIR}"
@@ -243,6 +195,33 @@ check_directories() {
     return ${has_error}
 }
 
+# Função auxiliar para checar um par imagens/máscaras
+check_test_dir() {
+    local img_dir=$1
+    local mask_dir=$2
+    local label_img=$3
+    local label_mask=$4
+    local local_err=0
+    
+    if [ ! -d "${img_dir}" ]; then
+        echo "     ❌ Diretório de ${label_img} não encontrado!"
+        return 1
+    fi
+    local count=$(ls -1 "${img_dir}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+    echo "     ✅ ${label_img}: ${count} arquivos"
+    [ ${count} -eq 0 ] && { echo "     ⚠️  Nenhuma ${label_img} encontrada!"; local_err=1; }
+    
+    if [ ! -d "${mask_dir}" ]; then
+        echo "     ❌ Diretório de ${label_mask} não encontrado!"
+        return 1
+    fi
+    count=$(ls -1 "${mask_dir}" 2>/dev/null | grep -E "\.(png|jpg|jpeg|tif|tiff|bmp)$" | wc -l)
+    echo "     ✅ ${label_mask}: ${count} arquivos"
+    [ ${count} -eq 0 ] && { echo "     ⚠️  Nenhuma ${label_mask} encontrada!"; local_err=1; }
+    
+    return ${local_err}
+}
+
 # Função para executar um modelo
 run_model() {
     local model_name=$1
@@ -258,36 +237,37 @@ run_model() {
     print_header "${model_name}" ${total} ${current}
     
     echo "📁 Resultados: ${results_dir}"
-    echo "📝 Log: ${log_file}"
-    echo "⏱️  Início: $(date)"
+    echo "📝 Log:        ${log_file}"
+    echo "⏱️  Início:     $(date)"
+    echo ""
+    echo "🗂️  Bases de teste que serão processadas SEPARADAMENTE:"
+    echo "   1) ${TEST1_NAME}"
+    echo "   2) ${TEST2_NAME}"
+    echo "   3) ${TEST3_NAME}"
+    echo "   ➜ Relatórios individuais em: ${results_dir}/<EXPERIMENT>/test_results/<BASE>/"
+    echo "   ➜ Comparativo geral em:      ${results_dir}/<EXPERIMENT>/test_results/COMPARATIVO_ENTRE_BASES/"
     echo ""
     
-    # Criar diretório
     mkdir -p "${results_dir}"
     
-    # Verificar se o script existe
     if [ ! -f "${script_path}" ]; then
         echo "❌ ERRO: Script não encontrado: ${script_path}"
         return 1
     fi
     
-    # Construir lista de diretórios de teste no formato imagem:máscara
-    # para passar para --test_dirs
+    # ---------- Montagem dos --test_dirs ----------
+    # Cada base vai como "<imagens>:<mascaras>"
+    # O Python detecta o nome da base automaticamente (usa o basename do diretório de imagens).
+    # Para garantir nomes estáveis (FIVES / Fundus-AVSeg / RETA), usamos os nomes definidos acima.
     TEST_DIRS_ARGS=""
-    
-    # Teste 1: FIVES
     TEST_DIRS_ARGS="${TEST_DIRS_ARGS} \"${TEST1_IMAGES_DIR}:${TEST1_MASKS_DIR}\""
-    
-    # Teste 2: Fundus-AVSeg
     TEST_DIRS_ARGS="${TEST_DIRS_ARGS} \"${TEST2_IMAGES_DIR}:${TEST2_MASKS_DIR}\""
-    
-    # Teste 3: RETA
     TEST_DIRS_ARGS="${TEST_DIRS_ARGS} \"${TEST3_IMAGES_DIR}:${TEST3_MASKS_DIR}\""
     
-    # Construir comando completo usando --test_dirs
+    # ---------- Comando Python ----------
     local CMD="${PYTHON_CMD} \"${script_path}\" \
         --train_images_dir \"${TRAIN_IMAGES_DIR}\" \
-        --train_masks_dir \"${TRAIN_MASKS_DIR}\" \
+        --train_masks_dir  \"${TRAIN_MASKS_DIR}\" \
         --test_dirs ${TEST_DIRS_ARGS} \
         --input_mode grayscale \
         --epochs ${EPOCHS} \
@@ -306,14 +286,19 @@ run_model() {
     echo ""
     echo "========================================="
     
-    # Executar e salvar log
     eval ${CMD} 2>&1 | tee "${log_file}"
-    
-    local exit_code=$?
+    local exit_code=${PIPESTATUS[0]}
     
     if [ ${exit_code} -eq 0 ]; then
         echo ""
         echo "✅ ${model_name} concluído com SUCESSO!"
+        echo ""
+        echo "📊 Relatórios gerados para ${model_name}:"
+        # Mostra os diretórios de teste/relatórios por base
+        find "${results_dir}" -maxdepth 4 -type d -name "test_results" 2>/dev/null | while read -r d; do
+            echo "   📂 ${d}"
+            ls -1 "${d}" 2>/dev/null | sed 's/^/      - /'
+        done
     else
         echo ""
         echo "❌ ${model_name} falhou com código ${exit_code}"
@@ -347,9 +332,25 @@ echo "  - Paciência: ${PATIENCE}"
 echo "  - Diretório base: ${BASE_RESULTS_DIR}"
 echo "  - Início: $(date)"
 echo ""
+echo "🧪 Bases de teste (cada uma gera relatório SEPARADO):"
+echo "  - ${TEST1_NAME}"
+echo "  - ${TEST2_NAME}"
+echo "  - ${TEST3_NAME}"
+echo ""
+echo "📁 Estrutura esperada por modelo:"
+echo "   <results_dir>/<MODELO>_${TIMESTAMP}/"
+echo "     ├── saved_models/"
+echo "     ├── run_0/ ... run_N/"
+echo "     └── <EXPERIMENT>/test_results/"
+echo "          ├── ${TEST1_NAME}/"
+echo "          ├── ${TEST2_NAME}/"
+echo "          ├── ${TEST3_NAME}/"
+echo "          └── COMPARATIVO_ENTRE_BASES/"
+echo ""
 
 # Verificar diretórios
 check_directories
+CHECK_EXIT=$?
 
 # Perguntar se deseja continuar
 echo ""
@@ -362,36 +363,37 @@ fi
 
 # ============================================
 # DEFINIÇÃO DOS MODELOS (6 MODELOS - GRAYSCALE)
+# Formato: "Nome_do_Modelo" "caminho/do/script.py" batch_size learning_rate
 # ============================================
 
-# Formato: "Nome_do_Modelo" "caminho/do/script.py" batch_size learning_rate
 MODELS=(
     "EfficientNetB0_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_efficientNet_cinza.py" ${BATCH_EFFICIENTNET} ${LR_EFFICIENTNET}
-    "ResNet101_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_resnet101_cinza.py" ${BATCH_RESNET} ${LR_RESNET}
-    "SwinUNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_swin_cinza.py" ${BATCH_SWIN} ${LR_SWIN}
-    "VGG19_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_vgg19_cinza.py" ${BATCH_VGG} ${LR_VGG}
-    "ViTUNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_vit_cinza.py" ${BATCH_VIT} ${LR_VIT}
-    "MobileNetV2_UNet_Grayscale" "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_mobileNetV2net_cinza.py" ${BATCH_MOBILENET} ${LR_MOBILENET}
+    "ResNet101_UNet_Grayscale"      "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_resnet101_cinza.py"   ${BATCH_RESNET}       ${LR_RESNET}
+    "SwinUNet_Grayscale"            "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_swin_cinza.py"        ${BATCH_SWIN}         ${LR_SWIN}
+    "VGG19_UNet_Grayscale"          "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_vgg19_cinza.py"       ${BATCH_VGG}          ${LR_VGG}
+    "ViTUNet_Grayscale"             "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_vit_cinza.py"         ${BATCH_VIT}          ${LR_VIT}
+    "MobileNetV2_UNet_Grayscale"    "/home/emanuel/Documentos/mestrado/treino dos modelos/modelos_pre_img_cinza/five_mobileNetV2net_cinza.py" ${BATCH_MOBILENET} ${LR_MOBILENET}
 )
 
-# Verificar se os scripts existem
+# Verificar scripts
 echo ""
 echo "🔍 Verificando scripts dos modelos (GRAYSCALE)..."
 for ((i=0; i<${#MODELS[@]}; i+=4)); do
     SCRIPT_PATH=${MODELS[$((i+1))]}
+    MODEL_NAME=${MODELS[$i]}
     if [ -f "${SCRIPT_PATH}" ]; then
-        echo "  ✅ $(basename "${SCRIPT_PATH}")"
+        echo "  ✅ ${MODEL_NAME}"
     else
-        echo "  ❌ $(basename "${SCRIPT_PATH}") - NÃO ENCONTRADO!"
-        # Tentar encontrar arquivo similar
+        echo "  ❌ ${MODEL_NAME} - Script NÃO ENCONTRADO:"
+        echo "     ${SCRIPT_PATH}"
         DIR=$(dirname "${SCRIPT_PATH}")
         echo "     🔍 Arquivos similares em ${DIR}:"
-        ls -la "${DIR}" 2>/dev/null | grep -i "grayscale" | awk '{print "        - " $9}'
+        ls -la "${DIR}" 2>/dev/null | grep -i "cinza\|grayscale" | awk '{print "        - " $9}'
     fi
 done
 echo ""
 
-TOTAL_MODELOS=${#MODELS[@]}
+TOTAL_MODELOS=$((${#MODELS[@]} / 4))
 CURRENT=0
 SUCESSOS=0
 FALHAS=0
@@ -408,7 +410,6 @@ for ((i=0; i<${#MODELS[@]}; i+=4)); do
     BATCH_SIZE=${MODELS[$((i+2))]}
     LEARNING_RATE=${MODELS[$((i+3))]}
     
-    # Verificar se o script existe antes de executar
     if [ ! -f "${SCRIPT_PATH}" ]; then
         echo ""
         echo "❌ PULANDO ${MODEL_NAME}: Script não encontrado: ${SCRIPT_PATH}"
@@ -431,7 +432,6 @@ for ((i=0; i<${#MODELS[@]}; i+=4)); do
         MODELOS_FALHAS+=("${MODEL_NAME}")
     fi
     
-    # Pausa entre modelos
     if [ ${CURRENT} -lt ${TOTAL_MODELOS} ]; then
         echo ""
         echo "⏳ Aguardando 10 segundos antes do próximo modelo..."
@@ -452,7 +452,7 @@ echo "######################################################################"
 echo ""
 echo "📈 Resumo:"
 echo "  ✅ Modelos com sucesso: ${SUCESSOS}/${TOTAL_MODELOS}"
-echo "  ❌ Modelos com falha: ${FALHAS}/${TOTAL_MODELOS}"
+echo "  ❌ Modelos com falha:   ${FALHAS}/${TOTAL_MODELOS}"
 echo ""
 
 if [ ${FALHAS} -gt 0 ]; then
@@ -463,25 +463,56 @@ if [ ${FALHAS} -gt 0 ]; then
     echo ""
     echo "📁 Para verificar os logs:"
     echo "   cd ${BASE_RESULTS_DIR}"
-    echo "   grep -r 'ERROR' */execution.log"
+    echo "   grep -r 'ERROR\\|Traceback' */execution.log"
 fi
 
 echo "📁 Resultados salvos em: ${BASE_RESULTS_DIR}/"
 echo "🕐 Fim: $(date)"
 echo ""
 
-# Listar diretórios criados
-echo "📂 Diretórios gerados:"
-ls -la "${BASE_RESULTS_DIR}/" 2>/dev/null | grep "${TIMESTAMP}" | awk '{print "  - " $9}' || echo "  Nenhum diretório encontrado"
+# ============================================
+# LISTAGEM DE RELATÓRIOS GERADOS POR BASE
+# ============================================
+echo "📂 Estrutura de relatórios por modelo e base:"
+for ((i=0; i<${#MODELS[@]}; i+=4)); do
+    MODEL_NAME=${MODELS[$i]}
+    MODEL_DIR="${BASE_RESULTS_DIR}/${MODEL_NAME}_${TIMESTAMP}"
+    if [ -d "${MODEL_DIR}" ]; then
+        echo ""
+        echo "  🔹 ${MODEL_NAME}"
+        # Procura por diretórios test_results dentro do experimento
+        find "${MODEL_DIR}" -maxdepth 4 -type d -name "test_results" 2>/dev/null | while read -r tr; do
+            echo "     📁 $(echo "${tr}" | sed "s|${MODEL_DIR}/||")"
+            for base in "${tr}"/*/; do
+                [ -d "${base}" ] || continue
+                bname=$(basename "${base}")
+                # Ignora o comparativo (mostra depois)
+                if [ "${bname}" = "COMPARATIVO_ENTRE_BASES" ]; then
+                    continue
+                fi
+                n_files=$(ls -1 "${base}" 2>/dev/null | wc -l)
+                echo "        - ${bname}  (${n_files} arquivos)"
+            done
+            # Mostra comparativo
+            comp="${tr}/COMPARATIVO_ENTRE_BASES"
+            if [ -d "${comp}" ]; then
+                echo "        - COMPARATIVO_ENTRE_BASES"
+                ls -1 "${comp}" 2>/dev/null | sed 's/^/            * /'
+            fi
+        done
+    fi
+done
 
 echo ""
 echo "======================================================================"
 if [ ${FALHAS} -eq 0 ]; then
     echo "🎉 TODOS OS MODELOS FORAM EXECUTADOS COM SUCESSO!"
     echo ""
-    echo "📁 Para visualizar os resultados:"
+    echo "📁 Para navegar nos resultados:"
     echo "   cd ${BASE_RESULTS_DIR}"
-    echo "   ls -la"
+    echo "   # Cada modelo tem sua pasta; dentro de cada experimento:"
+    echo "   #   <EXP>/test_results/<BASE>/REPORT.txt          (relatório individual)"
+    echo "   #   <EXP>/test_results/COMPARATIVO_ENTRE_BASES/   (comparativo geral)"
     exit 0
 else
     echo "⚠️  ALGUNS MODELOS FALHARAM. Verifique os logs para mais detalhes."

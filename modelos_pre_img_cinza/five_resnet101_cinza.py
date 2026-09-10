@@ -45,6 +45,7 @@ class Config:
             images_path = None
             masks_path = None
             
+            # Tenta detectar estruturas comuns automaticamente
             possible_structures = [
                 ('Original', 'Ground truth'),
                 ('images', 'masks'),
@@ -52,6 +53,8 @@ class Config:
                 ('image', 'mask'),
                 ('cinza', 'Ground truth'),
                 ('gray', 'Ground truth'),
+                ('images', 'Ground truth'),
+                ('Original', 'masks'),
             ]
             
             for img_sub, mask_sub in possible_structures:
@@ -62,11 +65,12 @@ class Config:
                     masks_path = mask_check
                     break
             
+            # Fallback: assume que imagens e máscaras estão na mesma pasta
             if images_path is None or masks_path is None:
                 images_path = test_dir
                 masks_path = test_dir
             
-            dataset_name = os.path.basename(test_dir)
+            dataset_name = os.path.basename(os.path.normpath(test_dir))
             self.test_datasets.append({
                 'name': dataset_name,
                 'images_dir': images_path,
@@ -99,13 +103,12 @@ class Config:
         self.scheduler_factor = args.scheduler_factor
         
         self.measure_time = not args.no_measure_time
-        self.input_mode = args.input_mode  # 'grayscale' ou 'rgb'
+        self.input_mode = args.input_mode
         self.input_channels = 1 if self.input_mode == 'grayscale' else 3
         
         # Diretórios de saída
         self.results_dir = args.results_dir
         
-        # Criar diretórios
         os.makedirs(self.results_dir, exist_ok=True)
         
         self.network_dir = os.path.join(self.results_dir, self.model_name)
@@ -120,6 +123,7 @@ class Config:
         self.reports_dir = os.path.join(self.network_dir, 'RELATORIO_DAS_EXECUCOES')
         os.makedirs(self.reports_dir, exist_ok=True)
         
+        # Diretório raiz para resultados de teste (cada base terá subpasta)
         self.test_results_dir = os.path.join(self.experiment_dir, 'test_results')
         os.makedirs(self.test_results_dir, exist_ok=True)
 
@@ -157,7 +161,6 @@ class ResNet101UNet(nn.Module):
         
         resnet = models.resnet101(weights=models.ResNet101_Weights.IMAGENET1K_V1 if pretrained else None)
         
-        # Modificar primeira convolução para aceitar 1 canal
         first_conv = resnet.conv1
         new_conv = nn.Conv2d(
             in_channels=input_channels,
@@ -242,7 +245,6 @@ class ResNet101UNet(nn.Module):
         self.sigmoid = nn.Sigmoid()
     
     def forward(self, x):
-        # Garantir que a entrada tem o número correto de canais
         if x.shape[1] != self.input_channels:
             raise ValueError(f"Esperado {self.input_channels} canais, recebeu {x.shape[1]}")
         
@@ -297,7 +299,7 @@ class ResNet101UNet(nn.Module):
         return out
 
 # ============================================
-# DATASET PARA GRAYSCALE
+# DATASET
 # ============================================
 class FundusSegmentationDataset(Dataset):
     def __init__(self, images_dir, masks_dir, img_size=224, input_mode='grayscale'):
@@ -305,9 +307,9 @@ class FundusSegmentationDataset(Dataset):
         self.masks_paths = sorted(glob(os.path.join(masks_dir, '*.*g')))
         self.input_mode = input_mode
         
-        print(f"Imagens encontradas: {len(self.images_paths)}")
-        print(f"Mascaras encontradas: {len(self.masks_paths)}")
-        print(f"Modo de entrada: {input_mode}")
+        print(f"  Imagens encontradas: {len(self.images_paths)}")
+        print(f"  Mascaras encontradas: {len(self.masks_paths)}")
+        print(f"  Modo de entrada: {input_mode}")
         
         img_names = {os.path.basename(p).lower(): p for p in self.images_paths}
         mask_names = {os.path.basename(p).lower(): p for p in self.masks_paths}
@@ -323,7 +325,7 @@ class FundusSegmentationDataset(Dataset):
                         self.valid_pairs.append((img_path, mask_path))
                         break
         
-        print(f"Pares validos encontrados: {len(self.valid_pairs)}")
+        print(f"  Pares validos encontrados: {len(self.valid_pairs)}")
         
         if len(self.valid_pairs) == 0:
             raise ValueError("Nenhum par de imagem-mascara encontrado!")
@@ -336,12 +338,10 @@ class FundusSegmentationDataset(Dataset):
     def __getitem__(self, idx):
         img_path, mask_path = self.valid_pairs[idx]
         
-        # Carregar imagem em tons de cinza
         image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         if image is None:
             raise ValueError(f"Erro ao carregar imagem: {img_path}")
         
-        # Carregar máscara
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise ValueError(f"Erro ao carregar mascara: {mask_path}")
@@ -352,8 +352,8 @@ class FundusSegmentationDataset(Dataset):
         image = image.astype(np.float32) / 255.0
         mask = (mask > 127).astype(np.float32)
         
-        image = torch.from_numpy(image).unsqueeze(0)  # [1, 224, 224]
-        mask = torch.from_numpy(mask).unsqueeze(0)    # [1, 224, 224]
+        image = torch.from_numpy(image).unsqueeze(0)
+        mask = torch.from_numpy(mask).unsqueeze(0)
         
         return image, mask
 
@@ -412,7 +412,7 @@ def compute_metrics(preds, targets, threshold=0.5):
     }
 
 # ============================================
-# FUNÇÕES DE TREINAMENTO COM TEMPO
+# TREINO / VALIDACAO
 # ============================================
 def train_epoch(model, train_loader, criterion, optimizer, device, measure_time=True):
     model.train()
@@ -445,10 +445,7 @@ def train_epoch(model, train_loader, criterion, optimizer, device, measure_time=
         
         running_loss += loss.item()
         
-        batch_metrics = compute_metrics(
-            outputs.detach(),
-            masks.detach()
-        )
+        batch_metrics = compute_metrics(outputs.detach(), masks.detach())
         for k in metrics:
             metrics[k] += batch_metrics[k]
         
@@ -498,10 +495,7 @@ def validate_epoch(model, val_loader, criterion, device, measure_time=True):
             
             running_loss += loss.item()
             
-            batch_metrics = compute_metrics(
-                outputs,
-                masks
-            )
+            batch_metrics = compute_metrics(outputs, masks)
             for k in metrics:
                 metrics[k] += batch_metrics[k]
     
@@ -524,14 +518,14 @@ def validate_epoch(model, val_loader, criterion, device, measure_time=True):
     return avg_loss, metrics, time_metrics
 
 # ============================================
-# FUNÇÃO DE TREINAMENTO
+# TREINAMENTO
 # ============================================
 def train_model(model, train_loader, val_loader, config, run_id=0):
     criterion = DiceBCELoss()
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', 
-        patience=config.scheduler_patience, 
+        optimizer, mode='min',
+        patience=config.scheduler_patience,
         factor=config.scheduler_factor
     )
     
@@ -543,7 +537,7 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
     best_model_state = None
     
     history = {
-        'train_loss': [], 'val_loss': [], 
+        'train_loss': [], 'val_loss': [],
         'train_dice': [], 'val_dice': [],
         'train_metrics': [], 'val_metrics': [],
         'train_time': [], 'val_time': []
@@ -634,7 +628,7 @@ def train_model(model, train_loader, val_loader, config, run_id=0):
     return history, best_dice
 
 # ============================================
-# FUNÇÃO PARA SALVAR RESULTADOS EM CSV
+# SALVAR RESULTADOS POR RUN
 # ============================================
 def save_run_results_csv(history, run_id, config):
     run_dir = os.path.join(config.experiment_dir, f'run_{run_id}')
@@ -718,7 +712,7 @@ def save_run_results_csv(history, run_id, config):
     return df_metrics, df_time, df_summary
 
 # ============================================
-# FUNÇÃO DE TESTE DETALHADA
+# TESTE DETALHADO (POR BASE)
 # ============================================
 def test_model_detailed(model, test_loader, device, run_id, config, dataset_name="test"):
     model.eval()
@@ -799,6 +793,9 @@ def test_model_detailed(model, test_loader, device, run_id, config, dataset_name
     
     return df_per_image, aggregated_metrics
 
+# ============================================
+# TESTE EM TODAS AS BASES (SEPARADAMENTE)
+# ============================================
 def test_model_average_detailed(config):
     all_results = {}
     
@@ -863,17 +860,20 @@ def test_model_average_detailed(config):
             dataset_test_dir = os.path.join(config.test_results_dir, dataset_name)
             os.makedirs(dataset_test_dir, exist_ok=True)
             
+            # Consolidado por imagem
             consolidated_per_image = pd.concat(all_per_image_dfs, ignore_index=True)
             consolidated_per_image_path = os.path.join(dataset_test_dir, 'consolidated_per_image_metrics.csv')
             consolidated_per_image.to_csv(consolidated_per_image_path, index=False)
             print(f"\nMetricas consolidadas por imagem salvas em: {consolidated_per_image_path}")
             
+            # Resumo agregado (uma linha por run)
             df_aggregated = pd.DataFrame(all_aggregated_metrics)
             df_aggregated.insert(0, 'run_id', range(len(all_aggregated_metrics)))
             aggregated_summary_path = os.path.join(dataset_test_dir, 'aggregated_metrics_summary.csv')
             df_aggregated.to_csv(aggregated_summary_path, index=False)
             print(f"Resumo das metricas agregadas salvo em: {aggregated_summary_path}")
             
+            # Estatísticas entre runs
             aggregated_stats = {}
             for col in df_aggregated.columns:
                 if col != 'run_id' and pd.api.types.is_numeric_dtype(df_aggregated[col]):
@@ -889,24 +889,61 @@ def test_model_average_detailed(config):
             stats_df.to_csv(stats_summary_path)
             print(f"Estatisticas consolidadas salvas em: {stats_summary_path}")
             
+            # Relatório final em texto por base
+            report_txt_path = os.path.join(dataset_test_dir, 'REPORT.txt')
+            with open(report_txt_path, 'w', encoding='utf-8') as f:
+                f.write(f"{'='*60}\n")
+                f.write(f"RELATORIO DE TESTE - BASE: {dataset_name}\n")
+                f.write(f"{'='*60}\n\n")
+                f.write(f"Modelo: {config.model_name}\n")
+                f.write(f"Modo de entrada: {config.input_mode} ({config.input_channels} canal)\n")
+                f.write(f"Tamanho da imagem: {config.img_size}x{config.img_size}\n")
+                f.write(f"Execucoes testadas: {len(all_aggregated_metrics)}\n\n")
+                
+                main_metrics = ['dice_mean', 'iou_mean', 'accuracy_mean', 'sensitivity_mean', 'specificity_mean']
+                f.write("METRICAS PRINCIPAIS (Media ± Desvio Padrao)\n")
+                f.write("-" * 50 + "\n")
+                for metric in main_metrics:
+                    if metric in stats_df.index:
+                        f.write(f"  {metric.replace('_mean', '').capitalize():15s}: "
+                                f"{stats_df.loc[metric, 'mean']:.4f} ± {stats_df.loc[metric, 'std']:.4f}\n")
+                
+                f.write("\nMETRICAS DE TEMPO\n")
+                f.write("-" * 50 + "\n")
+                time_metrics = ['test_total_time', 'test_inference_time_mean', 'test_inference_time_per_image_mean']
+                for metric in time_metrics:
+                    if metric in stats_df.index:
+                        f.write(f"  {metric.replace('_', ' ').title():30s}: "
+                                f"{stats_df.loc[metric, 'mean']:.4f}s ± {stats_df.loc[metric, 'std']:.4f}s\n")
+                
+                if 'test_images_per_second' in stats_df.index:
+                    f.write(f"\n  Throughput: {stats_df.loc['test_images_per_second', 'mean']:.2f} imagens/s\n")
+                
+                f.write(f"\n{'='*60}\n")
+                f.write(f"Fim do relatorio - {dataset_name}\n")
+                f.write(f"{'='*60}\n")
+            
+            print(f"Relatorio em texto salvo em: {report_txt_path}")
+            
             print("\n" + "="*50)
             print(f"RESULTADOS DO TESTE - {dataset_name}")
             print("="*50)
             
-            main_metrics = ['dice_mean', 'iou_mean', 'accuracy_mean', 'sensitivity_mean', 'specificity_mean']
             print("\nMETRICAS PRINCIPAIS (Media ± Desvio Padrao):")
             for metric in main_metrics:
                 if metric in stats_df.index:
-                    print(f"  {metric.replace('_mean', '')}: {stats_df.loc[metric, 'mean']:.4f} ± {stats_df.loc[metric, 'std']:.4f}")
+                    print(f"  {metric.replace('_mean', '')}: "
+                          f"{stats_df.loc[metric, 'mean']:.4f} ± {stats_df.loc[metric, 'std']:.4f}")
             
-            time_metrics = ['test_total_time', 'test_inference_time_mean', 'test_inference_time_per_image_mean']
             print("\nMETRICAS DE TEMPO (Media ± Desvio Padrao):")
             for metric in time_metrics:
                 if metric in stats_df.index:
                     if 'time' in metric:
-                        print(f"  {metric.replace('_', ' ').title()}: {stats_df.loc[metric, 'mean']:.4f}s ± {stats_df.loc[metric, 'std']:.4f}s")
+                        print(f"  {metric.replace('_', ' ').title()}: "
+                              f"{stats_df.loc[metric, 'mean']:.4f}s ± {stats_df.loc[metric, 'std']:.4f}s")
                     else:
-                        print(f"  {metric.replace('_', ' ').title()}: {stats_df.loc[metric, 'mean']:.4f} ± {stats_df.loc[metric, 'std']:.4f}")
+                        print(f"  {metric.replace('_', ' ').title()}: "
+                              f"{stats_df.loc[metric, 'mean']:.4f} ± {stats_df.loc[metric, 'std']:.4f}")
             
             if 'test_images_per_second' in stats_df.index:
                 print(f"\nThroughput: {stats_df.loc['test_images_per_second', 'mean']:.2f} imagens/s")
@@ -920,7 +957,125 @@ def test_model_average_detailed(config):
     return all_results
 
 # ============================================
-# FUNÇÃO PARA CRIAR RELATÓRIO CONSOLIDADO
+# RELATORIO COMPARATIVO ENTRE BASES
+# ============================================
+def create_cross_dataset_report(config, all_results):
+    """
+    Cria um relatório CSV/TXT comparando todas as bases de teste lado a lado.
+    """
+    if not all_results:
+        print("Nenhum resultado de teste para comparar.")
+        return
+    
+    comparison_data = []
+    
+    for dataset_name, result in all_results.items():
+        stats_df = result['statistics']
+        row = {'dataset': dataset_name}
+        
+        main_metrics = {
+            'dice': 'dice_mean',
+            'iou': 'iou_mean',
+            'accuracy': 'accuracy_mean',
+            'sensitivity': 'sensitivity_mean',
+            'specificity': 'specificity_mean',
+        }
+        
+        for name, col in main_metrics.items():
+            if col in stats_df.index:
+                row[f'{name}_mean'] = stats_df.loc[col, 'mean']
+                row[f'{name}_std'] = stats_df.loc[col, 'std']
+        
+        if 'test_total_time' in stats_df.index:
+            row['test_total_time_mean'] = stats_df.loc['test_total_time', 'mean']
+        if 'test_inference_time_per_image_mean' in stats_df.index:
+            row['inference_time_per_image_mean'] = stats_df.loc['test_inference_time_per_image_mean', 'mean']
+        if 'test_images_per_second' in stats_df.index:
+            row['throughput_images_per_second'] = stats_df.loc['test_images_per_second', 'mean']
+        
+        if 'per_image' in result and not result['per_image'].empty:
+            n_images = result['per_image'][result['per_image']['run_id'] == 0].shape[0]
+            row['num_images'] = n_images
+        
+        comparison_data.append(row)
+    
+    df_compare = pd.DataFrame(comparison_data)
+    
+    cross_dir = os.path.join(config.test_results_dir, 'COMPARATIVO_ENTRE_BASES')
+    os.makedirs(cross_dir, exist_ok=True)
+    
+    csv_path = os.path.join(cross_dir, 'comparativo_entre_bases.csv')
+    df_compare.to_csv(csv_path, index=False)
+    print(f"\nRelatorio comparativo entre bases salvo em: {csv_path}")
+    
+    txt_path = os.path.join(cross_dir, 'COMPARATIVO_ENTRE_BASES.txt')
+    with open(txt_path, 'w', encoding='utf-8') as f:
+        f.write("="*80 + "\n")
+        f.write("COMPARATIVO ENTRE BASES DE TESTE\n")
+        f.write("="*80 + "\n\n")
+        f.write(f"Modelo: {config.model_name}\n")
+        f.write(f"Modo de entrada: {config.input_mode}\n")
+        f.write(f"Numero de execucoes: {config.n_runs}\n\n")
+        
+        for _, row in df_compare.iterrows():
+            f.write("-"*60 + "\n")
+            f.write(f"BASE: {row['dataset']}\n")
+            f.write("-"*60 + "\n")
+            if 'num_images' in row and pd.notna(row.get('num_images')):
+                f.write(f"  Imagens testadas: {int(row['num_images'])}\n")
+            for name in ['dice', 'iou', 'accuracy', 'sensitivity', 'specificity']:
+                if f'{name}_mean' in row and pd.notna(row.get(f'{name}_mean')):
+                    f.write(f"  {name.capitalize():15s}: {row[f'{name}_mean']:.4f} ± {row[f'{name}_std']:.4f}\n")
+            if 'throughput_images_per_second' in row and pd.notna(row.get('throughput_images_per_second')):
+                f.write(f"  Throughput     : {row['throughput_images_per_second']:.2f} imagens/s\n")
+            f.write("\n")
+        
+        f.write("="*80 + "\n")
+    
+    print(f"Relatorio comparativo em texto salvo em: {txt_path}")
+    
+    try:
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        fig.suptitle(f'Comparacao entre Bases de Teste - {config.model_name}', fontsize=14, fontweight='bold')
+        
+        datasets = df_compare['dataset'].tolist()
+        x = np.arange(len(datasets))
+        width = 0.25
+        
+        metrics_to_plot = ['dice_mean', 'iou_mean', 'accuracy_mean']
+        labels = ['Dice', 'IoU', 'Accuracy']
+        
+        for i, (metric, label) in enumerate(zip(metrics_to_plot, labels)):
+            if metric in df_compare.columns:
+                axes[0].bar(x + i*width, df_compare[metric], width, label=label)
+        
+        axes[0].set_xticks(x + width)
+        axes[0].set_xticklabels(datasets, rotation=15)
+        axes[0].set_ylabel('Valor')
+        axes[0].set_title('Metricas Principais por Base')
+        axes[0].legend()
+        axes[0].grid(True, axis='y')
+        
+        if 'throughput_images_per_second' in df_compare.columns:
+            axes[1].bar(x, df_compare['throughput_images_per_second'], color='steelblue')
+            axes[1].set_xticks(x)
+            axes[1].set_xticklabels(datasets, rotation=15)
+            axes[1].set_ylabel('Imagens/segundo')
+            axes[1].set_title('Throughput por Base')
+            axes[1].grid(True, axis='y')
+        
+        plt.tight_layout()
+        plot_path = os.path.join(cross_dir, 'comparativo_entre_bases.png')
+        plt.savefig(plot_path, dpi=300)
+        plt.close()
+        print(f"Grafico comparativo salvo em: {plot_path}")
+    except Exception as e:
+        print(f"Nao foi possivel gerar grafico comparativo: {e}")
+    
+    return df_compare
+
+# ============================================
+# RELATORIO CONSOLIDADO (TREINO)
 # ============================================
 def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs):
     consolidated_metrics = pd.DataFrame()
@@ -948,7 +1103,7 @@ def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_t
     summary_df.to_csv(summary_consolidated_path, index=False)
     print(f"Resumo consolidado das execucoes salvo em: {summary_consolidated_path}")
     
-    final_metrics_cols = ['final_val_dice', 'final_val_loss', 'final_val_accuracy', 
+    final_metrics_cols = ['final_val_dice', 'final_val_loss', 'final_val_accuracy',
                           'final_val_iou', 'final_val_sensitivity', 'final_val_specificity']
     
     stats_data = {}
@@ -962,8 +1117,7 @@ def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_t
                 'median': summary_df[col].median()
             }
     
-    time_cols = ['total_training_time']
-    for col in time_cols:
+    for col in ['total_training_time']:
         if col in summary_df.columns:
             stats_data[col] = {
                 'mean': summary_df[col].mean(),
@@ -987,7 +1141,7 @@ def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_t
     print(f"Estatisticas descritivas salvas em: {stats_path}")
     
     print("\n" + "="*70)
-    print("RESUMO FINAL DAS EXECUCOES")
+    print("RESUMO FINAL DAS EXECUCOES (TREINO)")
     print("="*70)
     print(f"\nModelo: {config.model_name}")
     print(f"Numero de execucoes: {config.n_runs}")
@@ -1012,7 +1166,7 @@ def create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_t
     return consolidated_metrics, consolidated_time, summary_df, stats_df
 
 # ============================================
-# FUNÇÃO DE VISUALIZAÇÃO DE RESULTADOS
+# VISUALIZAÇÃO
 # ============================================
 def visualize_results(config):
     all_summaries = []
@@ -1029,7 +1183,7 @@ def visualize_results(config):
         fig.suptitle(f'{config.model_name} - Comparacao entre Execucoes', fontsize=16, fontweight='bold')
         
         axes[0, 0].bar(range(len(df)), df['final_val_dice'])
-        axes[0, 0].axhline(y=df['final_val_dice'].mean(), color='r', linestyle='--', 
+        axes[0, 0].axhline(y=df['final_val_dice'].mean(), color='r', linestyle='--',
                           label=f'Media: {df["final_val_dice"].mean():.4f}')
         axes[0, 0].set_xlabel('Run')
         axes[0, 0].set_ylabel('Dice')
@@ -1077,42 +1231,37 @@ def visualize_results(config):
 def parse_args():
     parser = argparse.ArgumentParser(description='ResNet101 UNet para Segmentacao de Vasos em Fundoscopia (Grayscale)')
     
-    # Argumentos obrigatórios
     parser.add_argument('--train_images_dir', required=True, help='Diretorio com imagens de treino')
     parser.add_argument('--train_masks_dir', required=True, help='Diretorio com mascaras de treino')
-    parser.add_argument('--test_dirs', nargs='+', required=True, help='Diretorios das bases de teste')
+    parser.add_argument('--test_dirs', nargs='+', required=True,
+                        help='Diretorios das bases de teste (ex: /path/Five /path/Reta)')
     
-    # Argumentos do modelo
-    parser.add_argument('--num_classes', type=int, default=1, help='Numero de classes (padrao: 1)')
-    parser.add_argument('--img_size', type=int, default=224, help='Tamanho das imagens (padrao: 224)')
-    parser.add_argument('--batch_size', type=int, default=16, help='Batch size (padrao: 16)')
-    parser.add_argument('--epochs', type=int, default=50, help='Numero de epocas (padrao: 50)')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate (padrao: 0.001)')
-    parser.add_argument('--input_mode', type=str, default='grayscale', choices=['grayscale', 'rgb'], 
-                        help='Modo de entrada: grayscale ou rgb (padrao: grayscale)')
+    parser.add_argument('--num_classes', type=int, default=1)
+    parser.add_argument('--img_size', type=int, default=224)
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--learning_rate', type=float, default=0.001)
+    parser.add_argument('--input_mode', type=str, default='grayscale', choices=['grayscale', 'rgb'])
     
-    # Argumentos de treinamento
-    parser.add_argument('--n_runs', type=int, default=5, help='Numero de execucoes (padrao: 5)')
-    parser.add_argument('--patience', type=int, default=10, help='Paciencia para early stopping (padrao: 10)')
-    parser.add_argument('--min_delta', type=float, default=0.001, help='Delta minimo para early stopping (padrao: 0.001)')
-    parser.add_argument('--scheduler_patience', type=int, default=5, help='Paciencia do scheduler (padrao: 5)')
-    parser.add_argument('--scheduler_factor', type=float, default=0.5, help='Fator de reducao do scheduler (padrao: 0.5)')
+    parser.add_argument('--n_runs', type=int, default=5)
+    parser.add_argument('--patience', type=int, default=10)
+    parser.add_argument('--min_delta', type=float, default=0.001)
+    parser.add_argument('--scheduler_patience', type=int, default=5)
+    parser.add_argument('--scheduler_factor', type=float, default=0.5)
     
-    # Argumentos de hardware
-    parser.add_argument('--num_workers', type=int, default=4, help='Numero de workers (padrao: 4)')
-    parser.add_argument('--no_cuda', action='store_true', help='Desabilitar CUDA')
-    parser.add_argument('--no_pretrained', action='store_true', help='Nao usar pesos pre-treinados')
+    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--no_cuda', action='store_true')
+    parser.add_argument('--no_pretrained', action='store_true')
     
-    # Argumentos de saída
-    parser.add_argument('--results_dir', type=str, default='./results', help='Diretorio de resultados (padrao: ./results)')
-    parser.add_argument('--model_name', type=str, default='ResNet101_UNet_Grayscale', help='Nome do modelo (padrao: ResNet101_UNet_Grayscale)')
-    parser.add_argument('--no_save_results', action='store_true', help='Nao salvar resultados')
-    parser.add_argument('--no_measure_time', action='store_true', help='Nao medir tempo')
+    parser.add_argument('--results_dir', type=str, default='./results')
+    parser.add_argument('--model_name', type=str, default='ResNet101_UNet_Grayscale')
+    parser.add_argument('--no_save_results', action='store_true')
+    parser.add_argument('--no_measure_time', action='store_true')
     
     return parser.parse_args()
 
 # ============================================
-# FUNÇÃO PRINCIPAL
+# MAIN
 # ============================================
 def main():
     args = parse_args()
@@ -1149,7 +1298,6 @@ def main():
     print(f"  Batch Size: {config.batch_size}")
     print(f"  Learning Rate: {config.learning_rate}")
     print(f"  Medicao de tempo: {'Ativada' if config.measure_time else 'Desativada'}")
-    print(f"  Modelos serao salvos no final do treinamento")
     print(f"  Diretorio: {config.experiment_dir}")
     
     print(f"\nBases de teste configuradas:")
@@ -1158,11 +1306,11 @@ def main():
         print(f"      Imagens: {dataset['images_dir']}")
         print(f"      Mascaras: {dataset['masks_dir']}")
     
-    # Preparar dados
+    # Preparar dados de treino
     print("\nCarregando dados de treino...")
     try:
         full_dataset = FundusSegmentationDataset(
-            config.train_images_dir, 
+            config.train_images_dir,
             config.train_masks_dir,
             img_size=config.img_size,
             input_mode=config.input_mode
@@ -1183,23 +1331,23 @@ def main():
         return
     
     train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset, 
+        full_dataset,
         [train_size, val_size],
         generator=torch.Generator().manual_seed(42)
     )
     
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=config.batch_size, 
-        shuffle=True, 
+        train_dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory
     )
     
     val_loader = DataLoader(
-        val_dataset, 
-        batch_size=config.batch_size, 
-        shuffle=False, 
+        val_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory
     )
@@ -1207,7 +1355,7 @@ def main():
     print(f"  Treino: {len(train_dataset)} imagens ({config.input_mode})")
     print(f"  Validacao: {len(val_dataset)} imagens ({config.input_mode})")
     
-    # Executar múltiplos treinamentos
+    # Multiplos treinamentos
     all_histories = []
     all_best_dices = []
     all_training_times = []
@@ -1225,7 +1373,7 @@ def main():
         try:
             input_channels = 1 if config.input_mode == 'grayscale' else 3
             model = ResNet101UNet(
-                num_classes=config.num_classes, 
+                num_classes=config.num_classes,
                 pretrained=config.pretrained,
                 input_channels=input_channels
             )
@@ -1258,14 +1406,13 @@ def main():
         del model
         torch.cuda.empty_cache()
     
-    # Criar relatório consolidado final
+    # Relatorio consolidado de treino
     if all_run_summaries and all_metrics_dfs and all_time_dfs:
         print("\n" + "="*70)
-        print("CRIANDO RELATORIO CONSOLIDADO FINAL")
+        print("CRIANDO RELATORIO CONSOLIDADO FINAL (TREINO)")
         print("="*70)
         create_consolidated_report(config, all_run_summaries, all_metrics_dfs, all_time_dfs)
     
-    # Calcular médias
     if all_best_dices:
         print("\n" + "="*70)
         print("CALCULANDO MEDIAS ENTRE EXECUCOES")
@@ -1283,14 +1430,22 @@ def main():
                 print(f"  Run {i+1}: {t:.2f}s")
             print(f"\nTempo medio por execucao: {np.mean(all_training_times):.2f}s ± {np.std(all_training_times):.2f}s")
     
-    # Testar em todas as bases configuradas
+    # ============================================
+    # TESTE EM MULTIPLAS BASES (SEPARADAMENTE)
+    # ============================================
     print("\n" + "="*70)
-    print("INICIANDO TESTE DOS MODELOS EM MULTIPLAS BASES")
+    print("INICIANDO TESTE DOS MODELOS EM MULTIPLAS BASES (SEPARADAS)")
     print("="*70)
     
     all_test_results = test_model_average_detailed(config)
     
-    # Visualizar resultados
+    # Relatorio comparativo entre bases
+    print("\n" + "="*70)
+    print("GERANDO RELATORIO COMPARATIVO ENTRE BASES")
+    print("="*70)
+    df_cross = create_cross_dataset_report(config, all_test_results)
+    
+    # Visualizacao final
     print("\n" + "="*70)
     print("VISUALIZANDO RESULTADOS")
     print("="*70)
@@ -1299,10 +1454,11 @@ def main():
     print("\n" + "="*70)
     print(f"EXPERIMENTO CONCLUIDO - {config.model_name}")
     print("="*70)
-    print(f"\nResultados individuais: {config.experiment_dir}")
+    print(f"\nResultados individuais (treino): {config.experiment_dir}")
     print(f"Modelos salvos: {config.models_dir}")
-    print(f"Relatorios consolidados: {config.reports_dir}")
-    print(f"Resultados de teste: {config.test_results_dir}")
+    print(f"Relatorios consolidados (treino): {config.reports_dir}")
+    print(f"Resultados de teste (por base): {config.test_results_dir}")
+    print(f"Comparativo entre bases: {os.path.join(config.test_results_dir, 'COMPARATIVO_ENTRE_BASES')}")
     
     if all_training_times:
         print(f"\nRESUMO DE TEMPO:")
