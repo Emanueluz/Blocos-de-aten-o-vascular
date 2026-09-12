@@ -1,0 +1,28 @@
+============================================================
+RELATORIO DE TESTE - BASE: verde_clahe
+============================================================
+
+Modelo: VGG19_UNet_verde_clahe
+Modo de entrada: grayscale (1 canal)
+Tamanho da imagem: 224x224
+Execucoes testadas: 5
+
+METRICAS PRINCIPAIS (Media ± Desvio Padrao)
+--------------------------------------------------
+  Dice           : 0.8361 ± 0.0098
+  Iou            : 0.7284 ± 0.0141
+  Accuracy       : 0.9802 ± 0.0011
+  Sensitivity    : 0.8078 ± 0.0155
+  Specificity    : 0.9917 ± 0.0006
+
+METRICAS DE TEMPO
+--------------------------------------------------
+  Test Total Time               : 2.5049s ± 0.0140s
+  Test Inference Time Mean      : 0.0025s ± 0.0002s
+  Test Inference Time Per Image Mean: 0.0006s ± 0.0001s
+
+  Throughput: 79.84 imagens/s
+
+============================================================
+Fim do relatorio - verde_clahe
+============================================================

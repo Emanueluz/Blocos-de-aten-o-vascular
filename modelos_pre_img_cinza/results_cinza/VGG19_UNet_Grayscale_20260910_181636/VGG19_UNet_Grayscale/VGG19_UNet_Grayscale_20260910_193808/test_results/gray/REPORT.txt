@@ -1,0 +1,28 @@
+============================================================
+RELATORIO DE TESTE - BASE: gray
+============================================================
+
+Modelo: VGG19_UNet_Grayscale
+Modo de entrada: grayscale (1 canal)
+Tamanho da imagem: 224x224
+Execucoes testadas: 5
+
+METRICAS PRINCIPAIS (Media ± Desvio Padrao)
+--------------------------------------------------
+  Dice           : 0.7721 ± 0.0040
+  Iou            : 0.6316 ± 0.0053
+  Accuracy       : 0.9650 ± 0.0009
+  Sensitivity    : 0.7284 ± 0.0082
+  Specificity    : 0.9861 ± 0.0016
+
+METRICAS DE TEMPO
+--------------------------------------------------
+  Test Total Time               : 0.7940s ± 0.0144s
+  Test Inference Time Mean      : 0.0027s ± 0.0008s
+  Test Inference Time Per Image Mean: 0.0007s ± 0.0002s
+
+  Throughput: 68.03 imagens/s
+
+============================================================
+Fim do relatorio - gray
+============================================================
